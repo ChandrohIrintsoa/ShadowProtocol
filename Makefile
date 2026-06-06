@@ -1,6 +1,6 @@
 # ShadowProtocol v3.0 - Makefile
 
-.PHONY: help install dev-install run clean test validate
+.PHONY: help install dev-install run clean test validate mode-a mode-b mode-c mode-d mode-e mode-f
 
 help:
 	@echo "ShadowProtocol v3.0 - Available commands:"
@@ -10,6 +10,9 @@ help:
 	@echo "  make mode-a        - Run MODE A directly"
 	@echo "  make mode-b        - Run MODE B directly"
 	@echo "  make mode-c        - Run MODE C directly"
+	@echo "  make mode-d        - Run MODE D (Flutter Patcher) directly"
+	@echo "  make mode-e        - Run MODE E (Find Functions) directly"
+	@echo "  make mode-f        - Run MODE F (Manifest Patcher) directly"
 	@echo "  make validate      - Validate project"
 	@echo "  make clean         - Clean temporary files"
 	@echo "  make test          - Run syntax checks"
@@ -40,9 +43,23 @@ mode-c:
 	@echo "Starting MODE C..."
 	python3 -m shadowprotocol C
 
+mode-d:
+	@echo "Starting MODE D (Flutter Patcher)..."
+	python3 -m shadowprotocol D
+
+mode-e:
+	@echo "Starting MODE E (Find Functions)..."
+	python3 -m shadowprotocol E
+
+mode-f:
+	@echo "Starting MODE F (Manifest Patcher)..."
+	python3 -m shadowprotocol F
+
 validate:
 	@echo "Validating project..."
 	python3 -m py_compile shadowprotocol/*.py
+	python3 -m py_compile shadowprotocol/flutter/*.py
+	python3 -m py_compile shadowprotocol/apk/*.py
 	python3 -m shadowprotocol.validator
 	@echo "Validation complete!"
 
@@ -56,6 +73,8 @@ clean:
 test:
 	@echo "Running syntax checks..."
 	python3 -m py_compile shadowprotocol/*.py
+	python3 -m py_compile shadowprotocol/flutter/*.py
+	python3 -m py_compile shadowprotocol/apk/*.py
 	@echo "All files valid!"
 
 uninstall:

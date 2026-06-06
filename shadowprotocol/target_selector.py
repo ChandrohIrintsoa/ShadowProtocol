@@ -9,7 +9,7 @@ from typing import List, Optional
 
 class TargetValidator:
     """Validate .so file integrity"""
-    
+
     @staticmethod
     def is_valid_so(path: str) -> bool:
         """Verify ELF binary"""
@@ -19,7 +19,7 @@ class TargetValidator:
                 return magic == b'\x7fELF'
         except Exception:
             return False
-    
+
     @staticmethod
     def get_arch(path: str) -> Optional[str]:
         """Get binary architecture"""
@@ -31,7 +31,7 @@ class TargetValidator:
                 return archs.get(machine)
         except Exception:
             return None
-    
+
     @staticmethod
     def is_writable(path: str) -> bool:
         """Check write permissions"""
@@ -40,63 +40,63 @@ class TargetValidator:
 
 class TargetSelector:
     """Interactive target selection"""
-    
+
     def __init__(self, start_path: str = "."):
         """Initialize selector"""
         self.start_path = Path(start_path)
         self.validator = TargetValidator()
-    
+
     def find_targets(self, recursive: bool = True) -> List[str]:
         """Find all .so files"""
         targets = []
-        
+
         if recursive:
             pattern = self.start_path.rglob("*.so")
         else:
             pattern = self.start_path.glob("*.so")
-        
+
         for path in pattern:
             if self.validator.is_valid_so(str(path)):
                 targets.append(str(path))
-        
+
         return sorted(targets)
-    
+
     def select_interactive(self, targets: List[str]) -> Optional[str]:
         """Interactive selection menu"""
-        
+
         if not targets:
             return None
-        
+
         for i, target in enumerate(targets, 1):
             arch = self.validator.get_arch(target)
-            writable = "✓" if self.validator.is_writable(target) else "✗"
+            writable = "Y" if self.validator.is_writable(target) else "N"
             size = os.path.getsize(target) / 1024 / 1024
-            
+
             print(f"[{i}] {target}")
             print(f"    Arch: {arch} | RW: {writable} | Size: {size:.2f}MB")
-        
+
         try:
             choice = int(input(f"\nSelect target [1-{len(targets)}]: "))
             if 1 <= choice <= len(targets):
                 return targets[choice - 1]
         except (ValueError, IndexError):
             pass
-        
+
         return None
-    
+
     def select_path(self, path: str) -> Optional[str]:
         """Select specific file or directory"""
         path = Path(path)
-        
+
         if path.is_file():
             if self.validator.is_valid_so(str(path)):
                 return str(path)
             return None
-        
+
         elif path.is_dir():
             targets = self.find_targets()
             if targets:
                 return self.select_interactive(targets)
             return None
-        
+
         return None

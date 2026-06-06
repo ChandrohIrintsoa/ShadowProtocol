@@ -1,10 +1,12 @@
 """
 UI Module - Terminal Interface with Curses + ANSI Fallback
 Live logging display + Progress bar + Responsive layout
+Supports modes A-F
 """
 
 import sys
 import os
+import time
 import curses
 import select
 import threading
@@ -28,7 +30,7 @@ class CursesUI:
      ...
     ---------------------------------------------------------------
      [████████████████████░░░░░░░░░░░░░░░░░░░░░] 65% MODE A 10/14
-     [q] Quitter | Modes: [a] [b] [c]
+     [q] Quit | Modes: [a] [b] [c] [d] [e] [f]
     """
 
     MAX_LOG_LINES = 50
@@ -66,7 +68,7 @@ class CursesUI:
         self.status_label = "Ready"
         self.running = True
 
-    # ── State update methods (thread-safe) ───────────────────
+    # -- State update methods (thread-safe) ----------------------------
 
     def update_dimensions(self) -> bool:
         """Check and update terminal dimensions if resized.
@@ -115,7 +117,7 @@ class CursesUI:
         with self.lock:
             self.status_label = status[:30]
 
-    # ── Drawing methods ──────────────────────────────────────
+    # -- Drawing methods -----------------------------------------------
 
     def _draw_header(self):
         """Draw dynamic header with mode + status."""
@@ -131,6 +133,10 @@ class CursesUI:
     def _draw_log_section(self):
         """Draw LIVE OUTPUT section with auto-scrolling logs."""
         try:
+            # Guard: need at least 5 rows for log section to make sense
+            if self.height < 5:
+                return
+
             # Separator below header
             self.stdscr.addstr(1, 0, "\u2500" * self.width,
                                curses.color_pair(4) | curses.A_DIM)
@@ -145,7 +151,8 @@ class CursesUI:
 
             # Log area: from line 4 to (height - 5)
             log_start_y = 4
-            log_height = max(self.height - 10, 5)
+            # Fix: ensure log_height is at least 1, and clamp to available space
+            log_height = max(1, min(self.height - 10, self.height - 5))
 
             # Show only the most recent logs that fit
             log_list = list(self.log_buffer)
@@ -179,6 +186,9 @@ class CursesUI:
     def _draw_progress(self):
         """Draw progress bar with step counter."""
         try:
+            if self.height < 6:
+                return
+
             # Separator above progress
             sep_y = self.height - 4
             self.stdscr.addstr(sep_y, 0, "\u2500" * self.width,
@@ -203,13 +213,13 @@ class CursesUI:
         """Draw footer with controls hint."""
         try:
             footer_y = self.height - 1
-            footer = " [q] Quitter | Modes: [a] [b] [c]"
+            footer = " [q] Quit | Modes: [a] [b] [c] [d] [e] [f]"
             self.stdscr.addstr(footer_y, 0, footer[:self.width],
                                curses.color_pair(4) | curses.A_DIM)
         except curses.error:
             pass
 
-    # ── Core methods ─────────────────────────────────────────
+    # -- Core methods --------------------------------------------------
 
     def refresh(self):
         """Full display refresh (thread-safe).
@@ -361,7 +371,7 @@ class ANSIUI:
             print(f"\033[97m {bar}\033[0m")
 
             # Footer
-            print("\033[93m [q] Quitter | Modes: [a] [b] [c]\033[0m")
+            print("\033[93m [q] Quit | Modes: [a] [b] [c] [d] [e] [f]\033[0m")
 
     def get_input(self) -> Optional[str]:
         """Non-blocking input using select() on stdin.

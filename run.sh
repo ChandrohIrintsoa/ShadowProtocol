@@ -16,12 +16,14 @@ fi
 if ! command -v r2 &> /dev/null; then
     echo "[!] Radare2 not found"
     echo "    Install: sudo apt install radare2"
-    exit 1
+    echo "    Termux:  pkg install radare2"
 fi
 
 echo "[+] Running ShadowProtocol v3.0..."
 echo "[*] Python: $(python3 --version 2>&1)"
-echo "[*] Radare2: $(r2 -v | head -1)"
+if command -v r2 &> /dev/null; then
+    echo "[*] Radare2: $(r2 -v 2>&1 | head -1)"
+fi
 echo ""
 
 # Run as Python module (supports both installed and local)

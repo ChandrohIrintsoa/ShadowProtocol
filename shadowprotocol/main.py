@@ -2,6 +2,7 @@
 """
 ShadowProtocol v3.0 - Main Application
 Fused version: TUI UI (v2) + Real Radare2 Functionality (v1)
++ Flutter Patcher + APK Editor + Manifest Patcher + Function Finder
 
 Interactive terminal UI with live logging, progress bar, and clean shutdown
 with real binary patching via Radare2 integration.
@@ -20,12 +21,17 @@ from .ui import CursesUI, ANSIUI
 from .target_selector import TargetSelector
 
 
+VALID_MODES = ('A', 'B', 'C', 'D', 'E', 'F')
+
+MODES_REQUIRING_TARGET = ('A', 'B', 'C')
+
+
 class ShadowProtocolApp:
     """Main application orchestrator.
 
     Manages the application lifecycle:
     - UI initialization (curses with ANSI fallback)
-    - User input handling (a/b/c for modes, q to quit)
+    - User input handling (a/b/c/d/e/f for modes, q to quit)
     - Mode execution in separate threads
     - Target binary selection
     - Graceful shutdown with cleanup
@@ -41,7 +47,7 @@ class ShadowProtocolApp:
         self.running = True
         self.stop_requested = False
         self._requested_mode: Optional[str] = None
-        
+
         # Target selection
         self.target_selector = TargetSelector()
         self.current_target: Optional[str] = None
@@ -62,10 +68,13 @@ class ShadowProtocolApp:
     def display_welcome(self):
         """Display welcome messages with mode instructions."""
         self.logger.success("=== ShadowProtocol v3.0 - Fusion TUI + Radare2 ===")
-        self.logger.info("Appuyez sur [1] pour sélectionner une cible")
-        self.logger.info("Appuyez sur [a], [b], ou [c] pour lancer les modes")
-        self.logger.info("Appuyez sur [q] à tout moment pour arrêter proprement")
-        self.logger.warning("Radare2 et r2pipe sont requis pour la fonctionnalité réelle")
+        self.logger.info("Press [1] to select a target")
+        self.logger.info("Press [a], [b], [c] for binary patching modes")
+        self.logger.info("Press [d] for Flutter Patcher mode")
+        self.logger.info("Press [e] for Find Functions mode")
+        self.logger.info("Press [f] for Manifest Patcher mode")
+        self.logger.info("Press [q] at any time to stop cleanly")
+        self.logger.warning("Radare2 and r2pipe are required for full functionality")
 
     def _start_mode(self, mode_name: str):
         """Start a processing mode in a separate daemon thread.
@@ -74,12 +83,12 @@ class ShadowProtocolApp:
         and launches execution in a background thread.
 
         Args:
-            mode_name: 'A', 'B', or 'C'
+            mode_name: 'A', 'B', 'C', 'D', 'E', or 'F'
         """
-        if not self.current_target and mode_name.upper() in ('A', 'B', 'C'):
-            self.logger.warning("Veuillez sélectionner une cible d'abord (option [1])")
+        if mode_name.upper() in MODES_REQUIRING_TARGET and not self.current_target:
+            self.logger.warning("Please select a target first (option [1])")
             return
-        
+
         try:
             self.current_mode = get_mode(
                 mode_name,
@@ -109,32 +118,32 @@ class ShadowProtocolApp:
             success = self.current_mode.execute()
             if success:
                 self.ui.set_status("Completed")
-                self.logger.success("Exécution du mode terminée avec succès")
+                self.logger.success("Mode execution completed successfully")
             else:
                 self.ui.set_status("Stopped")
-                self.logger.warning("Exécution du mode arrêtée")
+                self.logger.warning("Mode execution stopped")
         except Exception as e:
-            self.logger.error(f"Erreur mode: {e}")
+            self.logger.error(f"Mode error: {e}")
             self.ui.set_status("Error")
 
     def select_target_interactive(self):
         """Interactive target selection"""
-        self.logger.info("Recherche des fichiers .so...")
+        self.logger.info("Searching for .so files...")
         targets = self.target_selector.find_targets()
-        
+
         if not targets:
-            self.logger.warning("Aucun fichier .so trouvé")
+            self.logger.warning("No .so files found")
             return
-        
-        self.logger.info(f"{len(targets)} cible(s) détectée(s)")
+
+        self.logger.info(f"{len(targets)} target(s) detected")
         selected = self.target_selector.select_interactive(targets)
-        
+
         if selected:
             self.current_target = selected
             size = self.target_selector.validator.get_arch(selected) or "Unknown"
-            self.logger.success(f"Cible sélectionnée: {selected} ({size})")
+            self.logger.success(f"Target selected: {selected} ({size})")
         else:
-            self.logger.warning("Sélection annulée")
+            self.logger.warning("Selection cancelled")
 
     def handle_input(self, ch: str) -> bool:
         """Handle keyboard input from the main loop.
@@ -146,21 +155,20 @@ class ShadowProtocolApp:
             False if the application should quit, True otherwise.
         """
         if ch == 'q' or ch == '\x03':  # 'q' or Ctrl+C
-            self.logger.info("Arrêt demandé par utilisateur...")
+            self.logger.info("Shutdown requested by user...")
             return False
         elif ch == '1':
             self.select_target_interactive()
-        elif ch in ('a', 'b', 'c'):
+        elif ch in ('a', 'b', 'c', 'd', 'e', 'f'):
             if self.mode_thread and self.mode_thread.is_alive():
-                self.logger.warning("Un traitement est déjà en cours")
+                self.logger.warning("A process is already running")
             else:
-                self.logger.info(f"Lancement MODE {ch.upper()}...")
-                # For MODE A, we could prompt for offset here
+                self.logger.info(f"Starting MODE {ch.upper()}...")
                 if ch.upper() == 'A':
-                    self.logger.info("Pour MODE A, fournir l'offset via paramètre")
+                    self.logger.info("For MODE A, provide offset via parameter")
                 self._start_mode(ch)
         else:
-            self.logger.warning(f"Touche inconnue: {ch}")
+            self.logger.warning(f"Unknown key: {ch}")
         return True
 
     def _cleanup(self):
@@ -172,7 +180,7 @@ class ShadowProtocolApp:
         - Restores terminal state
         """
         if self.logger:
-            self.logger.info("Arrêt propre en cours...")
+            self.logger.info("Clean shutdown in progress...")
 
         # Signal mode to stop
         if self.current_mode:
@@ -181,12 +189,12 @@ class ShadowProtocolApp:
         # Wait for mode thread to finish
         if self.mode_thread and self.mode_thread.is_alive():
             if self.logger:
-                self.logger.warning("Interruption du traitement en cours...")
+                self.logger.warning("Interrupting current process...")
             self.mode_thread.join(timeout=5)
 
             if self.mode_thread.is_alive():
                 if self.logger:
-                    self.logger.error("Timeout - forcage arrêt")
+                    self.logger.error("Timeout - forcing stop")
 
         # Final display refresh to show cleanup messages
         if self.ui:
@@ -194,7 +202,7 @@ class ShadowProtocolApp:
             time.sleep(0.3)
 
         if self.logger:
-            self.logger.success("Nettoyage complète - Au revoir!")
+            self.logger.success("Cleanup complete - Goodbye!")
 
         # Final refresh and terminal restore
         if self.ui:
@@ -225,7 +233,7 @@ class ShadowProtocolApp:
 
                 # Check terminal resize
                 if self.ui.update_dimensions():
-                    self.logger.debug("Terminal redimensionné")
+                    self.logger.debug("Terminal resized")
 
                 # Handle keyboard input (non-blocking)
                 ch = self.ui.get_input()
@@ -245,10 +253,10 @@ class ShadowProtocolApp:
 
         except KeyboardInterrupt:
             if self.logger:
-                self.logger.warning("Interruption clavier détectée")
+                self.logger.warning("Keyboard interrupt detected")
         except Exception as e:
             if self.logger:
-                self.logger.error(f"Erreur: {e}")
+                self.logger.error(f"Error: {e}")
         finally:
             try:
                 self._cleanup()
@@ -262,7 +270,7 @@ class ShadowProtocolApp:
         Falls back to ANSI escape sequences if curses is unavailable.
 
         Args:
-            mode: Optional mode to auto-run ('A', 'B', or 'C').
+            mode: Optional mode to auto-run ('A'-'F').
                   If None, starts in interactive mode.
         """
         self._requested_mode = mode
@@ -271,7 +279,7 @@ class ShadowProtocolApp:
             # Primary: curses-based UI
             curses.wrapper(self._curses_main)
         except KeyboardInterrupt:
-            print("\n[!] Arrêt par utilisateur")
+            print("\n[!] Stopped by user")
         except Exception:
             # Fallback: ANSI-based UI
             try:
@@ -279,9 +287,9 @@ class ShadowProtocolApp:
                 self.logger = LoggerHandler(callback=self.ui.add_log)
                 self._main_loop()
             except KeyboardInterrupt:
-                print("\n[!] Arrêt par utilisateur")
+                print("\n[!] Stopped by user")
             except Exception as e:
-                print(f"\n[!] Erreur: {e}")
+                print(f"\n[!] Error: {e}")
                 sys.exit(1)
 
     def _curses_main(self, stdscr):
@@ -303,20 +311,23 @@ def main():
     """Entry point for the shadowprotocol command.
 
     Usage:
-        shadowprotocol          - Interactive mode (choose a/b/c)
+        shadowprotocol          - Interactive mode (choose a/b/c/d/e/f)
         shadowprotocol A        - Run MODE A directly
         shadowprotocol B        - Run MODE B directly
         shadowprotocol C        - Run MODE C directly
+        shadowprotocol D        - Run MODE D (Flutter Patcher) directly
+        shadowprotocol E        - Run MODE E (Find Functions) directly
+        shadowprotocol F        - Run MODE F (Manifest Patcher) directly
     """
     app = ShadowProtocolApp()
 
     if len(sys.argv) > 1:
         mode = sys.argv[1].upper()
-        if mode in ('A', 'B', 'C'):
+        if mode in VALID_MODES:
             app.run(mode)
         else:
-            print(f"Mode inconnue: {mode}")
-            print("Utilisation: shadowprotocol [A|B|C]")
+            print(f"Unknown mode: {mode}")
+            print("Usage: shadowprotocol [A|B|C|D|E|F]")
             sys.exit(1)
     else:
         app.run()
