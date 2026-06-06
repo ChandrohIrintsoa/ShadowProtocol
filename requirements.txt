@@ -1,0 +1,4 @@
+# ShadowProtocol v3.0 - Python Dependencies
+# Core requirement for Radare2 integration
+
+r2pipe>=1.6.0
