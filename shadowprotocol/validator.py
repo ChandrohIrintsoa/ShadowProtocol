@@ -78,7 +78,7 @@ class ProjectValidator:
         print("PROJECT VALIDATION - ShadowProtocol v3.0")
         print("="*80 + "\n")
 
-        py_files = list(self.project_path.glob("*.py"))
+        py_files = list(self.project_path.rglob("*.py"))
 
         if not py_files:
             print("[!] No Python files found")

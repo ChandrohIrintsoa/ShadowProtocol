@@ -59,7 +59,7 @@ class Theme:
     @staticmethod
     def warning(msg: str) -> str:
         """Format warning message"""
-        return f"{Colors.YELLOW}{Colors.BOLD}[!]{Colors.RESET} {msg}"
+        return f"{Colors.YELLOW}{Colors.BOLD}[W]{Colors.RESET} {msg}"
 
     @staticmethod
     def prompt(msg: str) -> str:

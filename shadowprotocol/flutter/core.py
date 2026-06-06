@@ -185,7 +185,11 @@ def find_related_functions(lib_path, pp_address, timeout=12):
 
     # Extract function-offset pairs
     triple_re = re.compile(r'(0x[0-9a-fA-F]+)\s+(0x[0-9a-fA-F]+)\s+(0x[0-9a-fA-F]+)')
-    matches = [(m.group(1), m.group(3)) for ln in lines if (m := triple_re.search(ln))]
+    matches = []
+    for ln in lines:
+        m = triple_re.search(ln)
+        if m:
+            matches.append((m.group(1), m.group(3)))
 
     if not matches:
         for ln in lines:

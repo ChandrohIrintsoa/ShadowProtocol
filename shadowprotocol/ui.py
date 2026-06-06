@@ -10,10 +10,15 @@ import time
 import curses
 import select
 import threading
-import termios
-import tty
 from collections import deque
 from typing import Optional
+
+try:
+    import termios
+    import tty
+    HAS_TERMIOS = True
+except ImportError:
+    HAS_TERMIOS = False
 
 
 class CursesUI:
@@ -291,11 +296,12 @@ class ANSIUI:
 
         # Set terminal to cbreak mode for non-blocking input
         self._old_settings = None
-        try:
-            self._old_settings = termios.tcgetattr(sys.stdin.fileno())
-            tty.setcbreak(sys.stdin.fileno())
-        except Exception:
-            pass
+        if HAS_TERMIOS:
+            try:
+                self._old_settings = termios.tcgetattr(sys.stdin.fileno())
+                tty.setcbreak(sys.stdin.fileno())
+            except Exception:
+                pass
 
     def update_dimensions(self) -> bool:
         """Check terminal size (informational only for ANSI mode)."""
@@ -354,6 +360,8 @@ class ANSIUI:
                     print(f"\033[91m {line}\033[0m")
                 elif "[W]" in line:
                     print(f"\033[93m {line}\033[0m")
+                elif "[D]" in line:
+                    print(f"\033[2m\033[93m {line}\033[0m")
                 elif "[*]" in line:
                     print(f"\033[96m {line}\033[0m")
                 else:
@@ -395,7 +403,7 @@ class ANSIUI:
         saved during initialization (cbreak mode revert).
         """
         self.running = False
-        if self._old_settings is not None:
+        if HAS_TERMIOS and self._old_settings is not None:
             try:
                 termios.tcsetattr(sys.stdin.fileno(),
                                   termios.TCSADRAIN,

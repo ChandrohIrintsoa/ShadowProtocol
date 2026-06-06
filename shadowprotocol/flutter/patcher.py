@@ -25,7 +25,11 @@ from .core import (
 )
 
 # Configuration defaults
-KEYWORDS_TRUE = ["keyword", "keyword"]
+KEYWORDS_TRUE = [
+    "isPro", "isPremium", "is_premium", "is_pro",
+    "lifetime", "isSubscription", "issubscribe",
+    "CustomerInfo", "entitlementinfo",
+]
 KEYWORDS_FALSE = [
     "isPro", "ispremium", "is_premium", "is_pro", "lifetime",
     "CustomerInfo", "isSubscription", "issubscribe"
@@ -113,7 +117,7 @@ class FlutterPatcher:
             total_successful_patches += pp_patches
 
         if self.enable_asm_patch:
-            asm_patches = process_asm_patch(apk_path, apk_dir)
+            asm_patches = process_asm_patch(apk_path, apk_dir, skip_blutter=True)
             total_successful_patches += asm_patches
 
         libapp_path = os.path.join(apk_dir, "libapp.so")
@@ -771,12 +775,13 @@ def process_pp_patch(apk_path, keywords_true=None, keywords_false=None,
     return apk_path, successful_patches
 
 
-def process_asm_patch(apk_path, apk_dir):
+def process_asm_patch(apk_path, apk_dir, skip_blutter=False):
     """Process asm folder based patching.
 
     Args:
         apk_path: Path to the APK file.
         apk_dir: Working directory for the APK.
+        skip_blutter: If True, skip the blutter step (already ran by caller).
 
     Returns:
         Number of successful patches.
@@ -787,11 +792,17 @@ def process_asm_patch(apk_path, apk_dir):
 
     try:
         base = os.path.splitext(os.path.basename(apk_path))[0]
-        out_dir = run_blutter(base, apk_dir)
 
-        if not out_dir:
-            print("Blutter failed to create output directory")
-            return 0
+        # Only run blutter if not already done by the caller
+        if not skip_blutter:
+            out_dir = run_blutter(base, apk_dir)
+            if not out_dir:
+                print("Blutter failed to create output directory")
+                return 0
+        else:
+            # Use existing blutter output directory
+            home = os.path.expanduser("~")
+            out_dir = os.path.join(home, "blutter-termux", f"out_dir_{base}")
 
         asm_folder = os.path.join(out_dir, "asm")
         matches = search_asm_folder(asm_folder)

@@ -117,14 +117,13 @@ def install_blutter():
         )
         print("Blutter downloaded")
 
-        os.chdir(blutter_dir)
         subprocess.run(
             ["find", ".", "-type", "f", "-exec", "sed", "-i", "s/std::format/fmt::format/g", "{}", "+"],
+            cwd=blutter_dir,
             check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         )
         print("Files updated")
 
-        os.chdir(home)
         print("Blutter successfully installed and configured")
         return True
 
@@ -193,14 +192,13 @@ def check_and_install_pptool():
             check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         )
 
-        os.chdir(pptool_dir)
         subprocess.run(
             ["g++", "-std=c++11", "-o", "pptool", "pptool.cpp"],
+            cwd=pptool_dir,
             check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         )
-        subprocess.run(["chmod", "+x", "pptool"], check=True)
-        shutil.copy("pptool", "/data/data/com.termux/files/usr/bin/")
-        os.chdir(home)
+        subprocess.run(["chmod", "+x", os.path.join(pptool_dir, "pptool")], check=True)
+        shutil.copy(os.path.join(pptool_dir, "pptool"), "/data/data/com.termux/files/usr/bin/")
 
         if shutil.which("pptool"):
             print("Pptool successfully installed")
