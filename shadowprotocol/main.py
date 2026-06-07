@@ -10,16 +10,19 @@ Manual path entry for target selection.
 """
 
 import sys
+import os
 import time
 import signal
 import curses
 import threading
+from datetime import datetime
 from typing import Optional
 
 from .logger import LoggerHandler
 from .modes import get_mode, BaseMode
 from .ui import CursesUI, ANSIUI
 from .target_selector import TargetSelector
+from .validator import DependencyValidator
 
 
 VALID_MODES = ('A', 'B', 'C', 'D', 'E', 'F')
@@ -54,6 +57,7 @@ class ShadowProtocolApp:
         self.target_selector = TargetSelector()
         self.current_target: Optional[str] = None
         self.current_offset: Optional[str] = None
+        self._dry_run = False
 
         # Signal handlers for external interrupts
         signal.signal(signal.SIGINT, self._handle_signal)
@@ -312,6 +316,17 @@ class ShadowProtocolApp:
             mode: Optional mode to auto-run ('A'-'F').
                   If None, starts in interactive mode.
         """
+        # Validate deps before UI start
+        required = [mode] if mode else ['A', 'B', 'C']
+        ok, messages = DependencyValidator.validate_all(required)
+
+        for msg in messages:
+            print(msg)
+
+        if not ok:
+            print("\n[!] Missing dependencies. Install and retry.")
+            sys.exit(1)
+
         self._requested_mode = mode
 
         try:
@@ -323,7 +338,9 @@ class ShadowProtocolApp:
             # Fallback: ANSI-based UI
             try:
                 self.ui = ANSIUI()
-                self.logger = LoggerHandler(callback=self.ui.add_log)
+                log_file = self._get_log_file_path()
+                self.logger = LoggerHandler(callback=self.ui.add_log, log_file=log_file)
+                self.logger.success("=== Session started (ANSI fallback) ===")
                 self._main_loop()
             except KeyboardInterrupt:
                 print("\n[!] Stopped by user")
@@ -341,9 +358,17 @@ class ShadowProtocolApp:
             stdscr: The curses standard screen object
         """
         self.ui = CursesUI(stdscr)
-        self.logger = LoggerHandler(callback=self.ui.add_log)
+        log_file = self._get_log_file_path()
+        self.logger = LoggerHandler(callback=self.ui.add_log, log_file=log_file)
+        self.logger.success("=== Session started ===")
         self._main_loop()
         return self.ui
+
+    def _get_log_file_path(self) -> str:
+        """Generate a timestamped log file path in logs/ directory."""
+        os.makedirs('logs', exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return f"logs/session_{timestamp}.log"
 
 
 def main():
@@ -357,16 +382,47 @@ def main():
         shadowprotocol D        - Run MODE D (Flutter Patcher) directly
         shadowprotocol E        - Run MODE E (Find Functions) directly
         shadowprotocol F        - Run MODE F (Manifest Patcher) directly
+        shadowprotocol --check-deps - Validate system dependencies
+        shadowprotocol --dry-run A  - Dry-run MODE A (preview changes)
     """
     app = ShadowProtocolApp()
 
     if len(sys.argv) > 1:
-        mode = sys.argv[1].upper()
+        arg = sys.argv[1]
+
+        # --check-deps: validate dependencies only
+        if arg == '--check-deps':
+            modes = sys.argv[2:] if len(sys.argv) > 2 else []
+            ok, messages = DependencyValidator.validate_all(modes)
+            for msg in messages:
+                print(msg)
+            if not ok:
+                print("\n[!] Missing dependencies. Install and retry.")
+                sys.exit(1)
+            else:
+                print("\n[+] All dependencies satisfied.")
+                sys.exit(0)
+
+        # --dry-run: preview mode without applying changes
+        if arg == '--dry-run':
+            mode_arg = sys.argv[2].upper() if len(sys.argv) > 2 else None
+            if mode_arg and mode_arg in VALID_MODES:
+                print(f"[*] DRY RUN MODE {mode_arg} - No changes will be applied")
+                app._dry_run = True
+                app.run(mode_arg)
+            else:
+                print("Usage: shadowprotocol --dry-run [A|B|C|D|E|F]")
+                sys.exit(1)
+            return
+
+        mode = arg.upper()
         if mode in VALID_MODES:
             app.run(mode)
         else:
             print(f"Unknown mode: {mode}")
             print("Usage: shadowprotocol [A|B|C|D|E|F]")
+            print("        shadowprotocol --check-deps")
+            print("        shadowprotocol --dry-run [A|B|C|D|E|F]")
             sys.exit(1)
     else:
         app.run()

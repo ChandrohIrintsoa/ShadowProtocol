@@ -46,6 +46,7 @@ class CursesUI:
         """
         self.stdscr = stdscr
         self.lock = threading.Lock()
+        self.log_lock = threading.Lock()  # Separate lock for log writes
 
         # Curses configuration
         curses.curs_set(0)       # Hide cursor (shown during input mode)
@@ -101,7 +102,7 @@ class CursesUI:
         The buffer holds up to MAX_LOG_LINES entries;
         oldest entries are automatically removed.
         """
-        with self.lock:
+        with self.log_lock:
             self.log_buffer.append(message)
 
     def set_progress(self, current: int, total: int, label: str = ""):
@@ -403,6 +404,7 @@ class ANSIUI:
     def __init__(self):
         """Initialize ANSIUI with terminal settings for non-blocking input."""
         self.lock = threading.Lock()
+        self.log_lock = threading.Lock()  # Separate lock for log writes
         self.log_buffer = deque(maxlen=self.MAX_LOG_LINES)
         self.progress_pct = 0
         self.progress_text = ""
@@ -437,7 +439,7 @@ class ANSIUI:
 
     def add_log(self, message: str):
         """Add a log message to the buffer (thread-safe)."""
-        with self.lock:
+        with self.log_lock:
             self.log_buffer.append(message)
 
     def set_progress(self, current: int, total: int, label: str = ""):

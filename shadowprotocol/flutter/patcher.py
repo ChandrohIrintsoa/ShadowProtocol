@@ -3,11 +3,6 @@ Flutter Patcher - PP Patching, ASM Patching, False Address Patching
 
 Merged from flutter_patcher.py and ultimate_flutter_patcher.py,
 deduplicating all shared code. Uses r2pipe for Radare2 operations.
-
-Key improvements (no business logic changes):
-- All patching results are persisted to results/ directory via results_writer
-- Better error handling with explicit messages
-- Robust validation throughout
 """
 
 import os
@@ -25,12 +20,6 @@ from .core import (
     cleanup_workspace,
     replace_lib_in_apk,
     find_related_functions,
-)
-
-from ..results_writer import (
-    write_patch_results,
-    write_offset_results,
-    write_generic_results,
 )
 
 # Configuration defaults
@@ -270,24 +259,6 @@ def patch_true_functions(libso_path, related_funcs, indices):
     except Exception as e:
         print(f"FALSE patching error: {e}")
 
-    # Persist patch results
-    patch_data = {}
-    for k, v in results.items():
-        patch_data[str(k)] = {
-            "func_addr": v[0],
-            "offset": v[1],
-            "patched": v[2],
-            "patched_at": v[3],
-            "register": v[4],
-            "patch_type": v[5]
-        }
-    result_path = write_patch_results(
-        patch_results=patch_data,
-        mode_label="D_TRUE",
-        extra_metadata={"libso_path": libso_path}
-    )
-    print(f"[*] TRUE patch results saved to: {result_path}")
-
     return results
 
 
@@ -379,24 +350,6 @@ def patch_false_functions(libso_path, related_funcs, indices):
     except Exception as e:
         print(f"TRUE patching error: {e}")
 
-    # Persist patch results
-    patch_data = {}
-    for k, v in results.items():
-        patch_data[str(k)] = {
-            "func_addr": v[0],
-            "offset": v[1],
-            "patched": v[2],
-            "patched_at": v[3],
-            "register": v[4],
-            "patch_type": v[5]
-        }
-    result_path = write_patch_results(
-        patch_results=patch_data,
-        mode_label="D_FALSE",
-        extra_metadata={"libso_path": libso_path}
-    )
-    print(f"[*] FALSE patch results saved to: {result_path}")
-
     return results
 
 
@@ -468,22 +421,6 @@ def patch_selected_functions(libso_path, related_funcs, patch_instr="wa add x0, 
     except Exception as e:
         print(f"Error during patching: {e}")
 
-    # Persist results
-    patch_data = {}
-    for k, v in results.items():
-        patch_data[str(k)] = {
-            "func_addr": v[0],
-            "offset": v[1],
-            "patched": v[2],
-            "patched_at": v[3]
-        }
-    result_path = write_patch_results(
-        patch_results=patch_data,
-        mode_label="D_SELECTED",
-        extra_metadata={"libso_path": libso_path, "patch_instr": patch_instr}
-    )
-    print(f"[*] Selected functions patch results saved to: {result_path}")
-
     return results
 
 
@@ -529,6 +466,10 @@ def search_asm_folder(asm_folder):
                     if addr_match:
                         address = addr_match.group(1)
 
+                        lines = content.splitlines()
+                        match_line_idx = content[:match.start()].count('\n')
+                        context_start = max(0, match_line_idx - 10)
+                        context_end = min(len(lines), match_line_idx + 10)
                         context = match.group()
 
                         all_matches.append({
@@ -548,16 +489,6 @@ def search_asm_folder(asm_folder):
             print(f"  Processed {i}/{len(dart_files)} files")
 
     print(f"\nTotal matches found: {len(all_matches)}")
-
-    # Persist ASM search results
-    if all_matches:
-        result_path = write_offset_results(
-            offsets=all_matches,
-            mode_label="D_ASM",
-            extra_metadata={"asm_folder": asm_folder, "type": "asm_regex_search"}
-        )
-        print(f"[*] ASM search results saved to: {result_path}")
-
     return all_matches
 
 
@@ -623,20 +554,11 @@ def extract_false_addresses_from_smngn(smngn_file):
                         if address in line and 'false' in line.lower():
                             context_start = max(0, j - 2)
                             context_end = min(len(lines), j + 3)
+                            context = '\n'.join(lines[context_start:context_end])
                             print(f"  Found false at {address}: {line.strip()}")
                             break
 
         print(f"Extracted {len(false_addresses)} false addresses")
-
-        # Persist false addresses result
-        if false_addresses:
-            result_path = write_offset_results(
-                offsets=[{"address": addr, "type": "false"} for addr in false_addresses],
-                mode_label="D_ASM_FALSE",
-                extra_metadata={"smngn_file": smngn_file, "type": "false_addresses"}
-            )
-            print(f"[*] False addresses saved to: {result_path}")
-
         return false_addresses
 
     except Exception as e:
@@ -732,14 +654,6 @@ def patch_false_addresses(libso_path, false_addresses):
     print(f"ASM PATCH SUMMARY: {successful}/{len(false_addresses)} successful")
     print("="*60)
 
-    # Persist ASM patch results
-    result_path = write_patch_results(
-        patch_results=results,
-        mode_label="D_ASM_PATCH",
-        extra_metadata={"libso_path": libso_path, "type": "asm_false_to_true"}
-    )
-    print(f"[*] ASM patch results saved to: {result_path}")
-
     return results
 
 
@@ -811,19 +725,6 @@ def process_pp_patch(apk_path, keywords_true=None, keywords_false=None,
                             found_for_kw = True
             if not found_for_kw:
                 print(f"No address found for FALSE '{kw}'")
-
-    # Persist PP address extraction results
-    if pp_addresses_true or pp_addresses_false:
-        result_path = write_offset_results(
-            offsets=[
-                {"address": addr, "type": "TRUE"} for addr in pp_addresses_true
-            ] + [
-                {"address": addr, "type": "FALSE"} for addr in pp_addresses_false
-            ],
-            mode_label="D_PP",
-            extra_metadata={"apk_path": apk_path, "type": "pp_address_extraction"}
-        )
-        print(f"[*] PP address extraction results saved to: {result_path}")
 
     libapp_path = os.path.join(apk_dir, "libapp.so")
     all_patch_results = {}

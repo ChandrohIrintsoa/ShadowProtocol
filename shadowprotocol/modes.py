@@ -1,15 +1,9 @@
 """
 Modes Module - Six processing modes with OOP pattern + Real Radare2 Integration
 Fuses v2 architecture with v1 functionality + Flutter/APK/Manifest/FindFunctions modes
-
-Key improvements (no business logic changes):
-- All search/offset results are persisted to results/ directory via results_writer
-- Better error handling with explicit messages
-- Robust validation throughout
 """
 
 import re
-import os
 import time
 import threading
 from abc import ABC, abstractmethod
@@ -20,13 +14,6 @@ try:
     HAS_R2PIPE = True
 except ImportError:
     HAS_R2PIPE = False
-
-from .results_writer import (
-    write_offset_results,
-    write_patch_results,
-    write_scan_targets,
-    write_function_results,
-)
 
 
 class Radare2Handler:
@@ -65,21 +52,38 @@ class Radare2Handler:
             self.pipe = None
             return False
 
-    def execute(self, cmd: str) -> str:
-        """Execute r2 command via r2pipe.
+    def execute(self, cmd: str) -> Tuple[bool, str, str]:
+        """Execute r2 command with explicit error reporting.
 
         Args:
             cmd: The r2 command string to execute.
 
         Returns:
-            The command output as a string, or empty string on error.
+            (success: bool, output: str, error: str)
         """
         if not self.pipe:
-            return ""
+            return (False, "", "r2pipe not initialized")
         try:
-            return self.pipe.cmd(cmd) or ""
-        except Exception:
-            return ""
+            result = self.pipe.cmd(cmd)
+            if result is None:
+                return (False, "", "r2 returned None")
+            return (True, result or "", "")
+        except Exception as e:
+            return (False, "", f"r2 error: {str(e)}")
+
+    def validate_binary(self) -> Tuple[bool, str]:
+        """Validate that binary opened successfully"""
+        if not self.pipe:
+            return (False, "r2pipe not initialized")
+
+        try:
+            result = self.pipe.cmd("i")
+            if result and "arch" in result:
+                return (True, result.split('\n')[0])
+        except Exception as e:
+            return (False, str(e))
+
+        return (False, "Could not analyze binary")
 
     def close(self):
         """Close r2 session."""
@@ -192,38 +196,26 @@ class ModeA(BaseMode):
 
         self.log(f"[*] Validating offset: {self.offset}")
 
-        if not self.r2:
-            self.log("[!] No binary loaded for Radare2 analysis")
-            return False
-
         if not self.r2.open(write=False):
             self.log("[!] Error opening Radare2")
             return False
 
         try:
-            self.r2.execute(f"s {self.offset}")
-            disasm = self.r2.execute("pd 5")
+            success, _, error = self.r2.execute(f"s {self.offset}")
+            if not success:
+                self.log(f"[!] r2 seek error: {error}")
+            success, disasm, error = self.r2.execute("pd 5")
             self.r2.close()
+
+            if not success:
+                self.log(f"[!] r2 disasm error: {error}")
+                return False
 
             if "0x30" in disasm:
                 self.log(f"[+] Pattern found at {self.offset}")
-                # Persist the offset validation result
-                result_path = write_offset_results(
-                    offsets=[{"address": self.offset, "pattern": "0x30", "status": "found"}],
-                    mode_label="A",
-                    extra_metadata={"binary": self.binary or "N/A"}
-                )
-                self.log(f"[+] Offset result saved to: {result_path}")
                 return True
 
             self.log("[W] Pattern 0x30 not found")
-            # Persist negative result too
-            result_path = write_offset_results(
-                offsets=[{"address": self.offset, "pattern": "0x30", "status": "not_found"}],
-                mode_label="A",
-                extra_metadata={"binary": self.binary or "N/A"}
-            )
-            self.log(f"[*] Offset result saved to: {result_path}")
             return False
         except Exception as e:
             self.log(f"[!] Validation error: {e}")
@@ -231,10 +223,6 @@ class ModeA(BaseMode):
 
     def patch(self) -> bool:
         """Apply patch via Radare2"""
-        if not self.r2:
-            self.log("[!] No binary loaded for patching")
-            return False
-
         if not self.r2.open(write=True):
             self.log("[!] Error opening in write mode")
             return False
@@ -244,28 +232,14 @@ class ModeA(BaseMode):
             self.r2.execute(f"s {self.offset}")
             self.r2.execute("wa add x0, x22, 0x20")
 
-            verify = self.r2.execute("pd 1")
+            success, verify, error = self.r2.execute("pd 1")
             self.r2.close()
 
-            patch_success = "0x20" in verify
+            if not success:
+                self.log(f"[!] Verification read error: {error}")
+                return False
 
-            # Persist patch result
-            result_path = write_patch_results(
-                patch_results={
-                    self.offset: {
-                        "patched": patch_success,
-                        "offset": self.offset,
-                        "instruction": "add x0, x22, 0x20",
-                        "verification": verify.strip() if verify else "N/A",
-                        "type": "MANUAL_ASSISTED"
-                    }
-                },
-                mode_label="A",
-                extra_metadata={"binary": self.binary or "N/A"}
-            )
-            self.log(f"[*] Patch result saved to: {result_path}")
-
-            if patch_success:
+            if "0x20" in verify:
                 self.log("[+] Patch applied and verified")
                 return True
 
@@ -333,10 +307,6 @@ class ModeB(BaseMode):
 
     def scan(self) -> List[Tuple[str, str]]:
         """Scan entire binary for pattern"""
-        if not self.r2:
-            self.log("[!] No binary loaded for scanning")
-            return []
-
         if not self.r2.open(write=False):
             self.log("[!] Error opening Radare2")
             return []
@@ -348,7 +318,11 @@ class ModeB(BaseMode):
 
             pattern = re.compile(r"add\s+x\d+,\s*x\d+,\s*0x30", re.IGNORECASE)
 
-            disasm = self.r2.execute("pd")
+            success, disasm, error = self.r2.execute("pd")
+            if not success:
+                self.log(f"[!] r2 disasm error: {error}")
+                self.r2.close()
+                return []
 
             for line in disasm.split('\n'):
                 if pattern.search(line):
@@ -358,20 +332,6 @@ class ModeB(BaseMode):
 
             self.r2.close()
             self.log(f"[+] {len(self.targets)} targets found")
-
-            # Persist scan results to results/ directory
-            if self.targets:
-                scan_data = [
-                    {"address": addr, "instruction": instr}
-                    for addr, instr in self.targets
-                ]
-                result_path = write_scan_targets(
-                    targets=scan_data,
-                    mode_label="B",
-                    extra_metadata={"binary": self.binary or "N/A"}
-                )
-                self.log(f"[+] Scan results saved to: {result_path}")
-
             return self.targets
         except Exception as e:
             self.log(f"[!] Scan error: {e}")
@@ -383,10 +343,6 @@ class ModeB(BaseMode):
             self.log("[!] No targets to patch")
             return 0
 
-        if not self.r2:
-            self.log("[!] No binary loaded for patching")
-            return 0
-
         if not self.r2.open(write=True):
             self.log("[!] Error opening in write mode")
             return 0
@@ -395,7 +351,6 @@ class ModeB(BaseMode):
             self.log("[*] Applying patches...")
 
             patched = 0
-            patch_results = {}
             for i, (addr, instr) in enumerate(self.targets, 1):
                 if self.is_stopping():
                     break
@@ -403,30 +358,14 @@ class ModeB(BaseMode):
                 self.r2.execute(f"s {addr}")
                 self.r2.execute("wa add x0, x22, 0x20")
 
-                verify = self.r2.execute("pd 1")
-                is_patched = "0x20" in verify
-                if is_patched:
+                _, verify, _ = self.r2.execute("pd 1")
+                if "0x20" in verify:
                     patched += 1
                     if i % 10 == 0:
                         self.log(f"[*] {patched}/{len(self.targets)} patched")
 
-                patch_results[addr] = {
-                    "patched": is_patched,
-                    "original": instr,
-                    "verification": verify.strip() if verify else "N/A"
-                }
-
             self.r2.close()
             self.log(f"[+] {patched}/{len(self.targets)} patches applied")
-
-            # Persist patch results
-            result_path = write_patch_results(
-                patch_results=patch_results,
-                mode_label="B",
-                extra_metadata={"binary": self.binary or "N/A"}
-            )
-            self.log(f"[*] Patch results saved to: {result_path}")
-
             return patched
         except Exception as e:
             self.log(f"[!] Patch error: {e}")
@@ -508,10 +447,6 @@ class ModeC(BaseMode):
         Returns:
             List of output strings.
         """
-        if not self.r2:
-            self.log("[!] No binary loaded for Radare2 session")
-            return []
-
         if not self.r2.open(write=True):
             self.log("[!] Error opening Radare2")
             return []
@@ -521,26 +456,15 @@ class ModeC(BaseMode):
             for cmd in commands:
                 if self.is_stopping():
                     break
-                output = self.r2.execute(cmd)
+                success, output, error = self.r2.execute(cmd)
                 results.append(output)
                 self.log(f"[*] r2> {cmd}")
-                if output.strip():
+                if not success:
+                    self.log(f"    [!] r2 error: {error}")
+                elif output.strip():
                     self.log(f"    {output.strip()[:200]}")
         finally:
             self.r2.close()
-
-        # Persist r2 command results
-        if results:
-            cmd_data = [
-                {"command": cmd, "output": out.strip()[:500] if out else "(empty)"}
-                for cmd, out in zip(commands, results)
-            ]
-            result_path = write_offset_results(
-                offsets=cmd_data,
-                mode_label="C",
-                extra_metadata={"binary": self.binary or "N/A", "type": "r2_commands"}
-            )
-            self.log(f"[*] R2 command results saved to: {result_path}")
 
         return results
 
@@ -649,25 +573,6 @@ class ModeE(BaseMode):
 
     def get_label(self) -> str:
         return "E"
-
-    def _find_and_persist(self, search_type: str, results: list) -> None:
-        """Persist function search results to the results directory.
-
-        Args:
-            search_type: Search variant identifier ('v2' or 'v3').
-            results: List of (address, instruction) tuples.
-        """
-        if results:
-            func_data = [
-                {"address": addr, "instruction": instr}
-                for addr, instr in results
-            ]
-            result_path = write_function_results(
-                functions=func_data,
-                search_type=search_type,
-                extra_metadata={"binary": self.binary or "N/A"}
-            )
-            self.log(f"[+] Function search results ({search_type}) saved to: {result_path}")
 
     def execute(self) -> bool:
         """Execute MODE E - Find Functions"""

@@ -1,6 +1,7 @@
 """
 Logger Handler - Thread-safe logging system with timestamps
 Callback-based architecture for real-time UI updates
++ Persistent log file support
 """
 
 import os
@@ -10,12 +11,13 @@ from typing import Callable, Optional
 
 
 class LoggerHandler:
-    """Thread-safe log handler with callback support.
+    """Thread-safe log handler with callback and file persistence support.
 
     Provides multiple log levels (info, success, error, warning, debug)
     each with a distinctive prefix for color-coded display.
     All operations are protected by a threading.Lock to ensure
     safe concurrent access from mode execution threads.
+    Optionally writes all messages to a log file for persistence.
     """
 
     def __init__(self, callback: Optional[Callable] = None, log_file: Optional[str] = None):

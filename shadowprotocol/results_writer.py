@@ -11,35 +11,22 @@ import json
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
-
-# Default results directory (relative to project root)
-DEFAULT_RESULTS_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "results"
-)
+from .config import Config
 
 
 def _ensure_results_dir(results_dir: Optional[str] = None) -> str:
-    """Ensure the results directory exists and return its path.
-
-    Args:
-        results_dir: Custom results directory path.
-                     If None, uses DEFAULT_RESULTS_DIR.
-
-    Returns:
-        Absolute path to the results directory.
-    """
-    target_dir = results_dir or DEFAULT_RESULTS_DIR
+    """Ensure the results directory exists and return its path."""
+    if results_dir:
+        target_dir = results_dir
+    else:
+        cfg_dir = Config.get('results_dir')
+        target_dir = str(cfg_dir) if cfg_dir else './results'
     os.makedirs(target_dir, exist_ok=True)
     return target_dir
 
 
 def _timestamp_tag() -> str:
-    """Generate a compact timestamp tag for file naming.
-
-    Returns:
-        String in format YYYYMMDD_HHMMSS.
-    """
+    """Generate a compact timestamp tag for file naming."""
     return datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
@@ -49,17 +36,7 @@ def write_offset_results(
     results_dir: Optional[str] = None,
     extra_metadata: Optional[Dict[str, Any]] = None
 ) -> str:
-    """Write offset search results to a persistent file.
-
-    Args:
-        offsets: List of offset result dicts (address, instruction, etc.).
-        mode_label: Mode identifier (e.g. 'A', 'B', 'E_v2').
-        results_dir: Custom results directory path.
-        extra_metadata: Additional metadata to include in the output.
-
-    Returns:
-        Path to the written results file.
-    """
+    """Write offset search results to a persistent file."""
     out_dir = _ensure_results_dir(results_dir)
     tag = _timestamp_tag()
     filename = f"offsets_mode{mode_label}_{tag}.txt"
@@ -75,7 +52,6 @@ def write_offset_results(
             for key, value in extra_metadata.items():
                 f.write(f"{key}: {value}\n")
         f.write("=" * 70 + "\n\n")
-
         if not offsets:
             f.write("(No results found)\n")
         else:
@@ -90,7 +66,6 @@ def write_offset_results(
                 else:
                     f.write(f"  {entry}\n")
                 f.write("\n")
-
     return filepath
 
 
@@ -100,17 +75,7 @@ def write_patch_results(
     results_dir: Optional[str] = None,
     extra_metadata: Optional[Dict[str, Any]] = None
 ) -> str:
-    """Write patching results to a persistent file.
-
-    Args:
-        patch_results: Dict of patch result data.
-        mode_label: Mode identifier.
-        results_dir: Custom results directory path.
-        extra_metadata: Additional metadata to include.
-
-    Returns:
-        Path to the written results file.
-    """
+    """Write patching results to a persistent file."""
     out_dir = _ensure_results_dir(results_dir)
     tag = _timestamp_tag()
     filename = f"patches_mode{mode_label}_{tag}.txt"
@@ -132,18 +97,14 @@ def write_patch_results(
             for key, value in extra_metadata.items():
                 f.write(f"{key}: {value}\n")
         f.write("=" * 70 + "\n\n")
-
         for key, info in patch_results.items():
             f.write(f"[{key}]\n")
             if isinstance(info, dict):
                 for k, v in info.items():
                     f.write(f"  {k}: {v}\n")
-            elif isinstance(info, (list, tuple)):
-                f.write(f"  {info}\n")
             else:
                 f.write(f"  {info}\n")
             f.write("\n")
-
     return filepath
 
 
@@ -153,17 +114,7 @@ def write_function_results(
     results_dir: Optional[str] = None,
     extra_metadata: Optional[Dict[str, Any]] = None
 ) -> str:
-    """Write function search results (from Mode E / find_functions) to a file.
-
-    Args:
-        functions: List of function result dicts (address, instruction, etc.).
-        search_type: Search variant identifier (e.g. 'v2', 'v3', 'all').
-        results_dir: Custom results directory path.
-        extra_metadata: Additional metadata to include.
-
-    Returns:
-        Path to the written results file.
-    """
+    """Write function search results to a file."""
     out_dir = _ensure_results_dir(results_dir)
     tag = _timestamp_tag()
     filename = f"functions_{search_type}_{tag}.txt"
@@ -179,7 +130,6 @@ def write_function_results(
             for key, value in extra_metadata.items():
                 f.write(f"{key}: {value}\n")
         f.write("=" * 70 + "\n\n")
-
         if not functions:
             f.write("(No functions found)\n")
         else:
@@ -194,58 +144,6 @@ def write_function_results(
                 else:
                     f.write(f"  {entry}\n")
                 f.write("\n")
-
-    return filepath
-
-
-def write_scan_targets(
-    targets: List[Dict[str, Any]],
-    mode_label: str,
-    results_dir: Optional[str] = None,
-    extra_metadata: Optional[Dict[str, Any]] = None
-) -> str:
-    """Write scan target results (from Mode B auto-scan) to a file.
-
-    Args:
-        targets: List of target dicts (address, instruction, etc.).
-        mode_label: Mode identifier.
-        results_dir: Custom results directory path.
-        extra_metadata: Additional metadata to include.
-
-    Returns:
-        Path to the written results file.
-    """
-    out_dir = _ensure_results_dir(results_dir)
-    tag = _timestamp_tag()
-    filename = f"scan_targets_mode{mode_label}_{tag}.txt"
-    filepath = os.path.join(out_dir, filename)
-
-    with open(filepath, "w", encoding="utf-8") as f:
-        f.write("=" * 70 + "\n")
-        f.write(f"SHADOWPROTOCOL - SCAN TARGET RESULTS\n")
-        f.write(f"Mode: {mode_label}\n")
-        f.write(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"Total targets: {len(targets)}\n")
-        if extra_metadata:
-            for key, value in extra_metadata.items():
-                f.write(f"{key}: {value}\n")
-        f.write("=" * 70 + "\n\n")
-
-        if not targets:
-            f.write("(No targets found)\n")
-        else:
-            for i, entry in enumerate(targets, 1):
-                f.write(f"Target #{i}:\n")
-                if isinstance(entry, dict):
-                    for key, value in entry.items():
-                        f.write(f"  {key}: {value}\n")
-                elif isinstance(entry, (list, tuple)):
-                    for j, item in enumerate(entry):
-                        f.write(f"  [{j}]: {item}\n")
-                else:
-                    f.write(f"  {entry}\n")
-                f.write("\n")
-
     return filepath
 
 
@@ -255,17 +153,7 @@ def write_related_functions(
     results_dir: Optional[str] = None,
     extra_metadata: Optional[Dict[str, Any]] = None
 ) -> str:
-    """Write related functions results (from pptool/PP analysis) to a file.
-
-    Args:
-        functions: List of (function_address, offset_value) tuples.
-        pp_address: The PP offset address that was queried.
-        results_dir: Custom results directory path.
-        extra_metadata: Additional metadata to include.
-
-    Returns:
-        Path to the written results file.
-    """
+    """Write related functions results to a file."""
     out_dir = _ensure_results_dir(results_dir)
     tag = _timestamp_tag()
     filename = f"related_functions_{pp_address}_{tag}.txt"
@@ -281,14 +169,12 @@ def write_related_functions(
             for key, value in extra_metadata.items():
                 f.write(f"{key}: {value}\n")
         f.write("=" * 70 + "\n\n")
-
         if not functions:
             f.write("(No related functions found)\n")
         else:
             for i, (func_addr, offset_val) in enumerate(functions, 1):
                 f.write(f"  {i}. function_address = {func_addr} | offset_value = {offset_val}\n")
         f.write("\n")
-
     return filepath
 
 
@@ -298,17 +184,7 @@ def write_generic_results(
     results_dir: Optional[str] = None,
     extra_metadata: Optional[Dict[str, Any]] = None
 ) -> str:
-    """Write generic results to a persistent file.
-
-    Args:
-        data: Any data to write (will be JSON-serialized if not a string).
-        title: Short title for the results file.
-        results_dir: Custom results directory path.
-        extra_metadata: Additional metadata to include.
-
-    Returns:
-        Path to the written results file.
-    """
+    """Write generic results to a persistent file."""
     out_dir = _ensure_results_dir(results_dir)
     tag = _timestamp_tag()
     safe_title = title.replace(" ", "_").replace("/", "_")
@@ -323,7 +199,6 @@ def write_generic_results(
             for key, value in extra_metadata.items():
                 f.write(f"{key}: {value}\n")
         f.write("=" * 70 + "\n\n")
-
         if isinstance(data, str):
             f.write(data)
         else:
@@ -332,5 +207,4 @@ def write_generic_results(
             except (TypeError, ValueError):
                 f.write(str(data))
         f.write("\n")
-
     return filepath

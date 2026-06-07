@@ -2,7 +2,6 @@
 ShadowProtocol v3.0 Enhanced - Binary Patcher with Radare2 Integration
 Merged UI (Curses + ANSI) + Core Functionality (Radare2 + Target Selection)
 + Flutter Patcher + APK Editor + Manifest Patcher + Function Finder
-+ Results Writer (persistent output for search/offset results)
 
 Version: 3.0.0
 Status: Production Ready

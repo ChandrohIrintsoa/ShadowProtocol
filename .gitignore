@@ -1,37 +1,13 @@
-# Byte-compiled / optimized
+results/
+logs/
+*.pyc
 __pycache__/
-*.py[cod]
-*$py.class
-
-# Distribution / packaging
-build/
-dist/
-*.egg-info/
-*.egg
-
-# Virtual environments
-.venv/
-venv/
-env/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Project specific
-*.so
+.shadowprotocol_session
+temp/
 *.apk
-*.apks
-arm64-v8a/
-libapp.so
-pp.txt
-smngn.txt
-apk_patch_work/
-blutter-termux/
+*.so
+*.egg-info/
+dist/
+build/
+venv/
+.env

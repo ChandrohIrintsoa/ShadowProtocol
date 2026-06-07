@@ -67,6 +67,7 @@ class TargetSelector:
 
         Accepts any valid file path (not just .so extension),
         verifies the file exists and is a valid ELF binary.
+        Rejects symlinks, directories, and unreadable files.
 
         Args:
             path: The file path entered by the user.
@@ -83,12 +84,23 @@ class TargetSelector:
         path = os.path.expanduser(path)
         path = os.path.expandvars(path)
 
-        # Check if file exists
-        if not os.path.isfile(path):
+        # Resolve to absolute path (follows symlinks)
+        try:
+            abs_path = os.path.abspath(path)
+        except (OSError, ValueError):
             return None
 
-        # Convert to absolute path
-        abs_path = os.path.abspath(path)
+        # Reject symlinks
+        if os.path.islink(abs_path):
+            return None
+
+        # Check if file exists
+        if not os.path.isfile(abs_path):
+            return None
+
+        # Must have read permission
+        if not os.access(abs_path, os.R_OK):
+            return None
 
         # Validate ELF binary
         if not self.validator.is_valid_so(abs_path):
