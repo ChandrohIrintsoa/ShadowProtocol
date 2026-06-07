@@ -9,7 +9,7 @@ Uses r2pipe for proper Radare2 API integration.
 """
 
 import re
-from typing import List, Tuple, Optional
+from typing import List, Tuple
 
 try:
     import r2pipe

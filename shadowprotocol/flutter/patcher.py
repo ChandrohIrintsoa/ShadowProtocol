@@ -7,8 +7,6 @@ deduplicating all shared code. Uses r2pipe for Radare2 operations.
 
 import os
 import re
-import shutil
-import subprocess
 
 try:
     import r2pipe
@@ -25,11 +23,7 @@ from .core import (
 )
 
 # Configuration defaults
-KEYWORDS_TRUE = [
-    "isPro", "isPremium", "is_premium", "is_pro",
-    "lifetime", "isSubscription", "issubscribe",
-    "CustomerInfo", "entitlementinfo",
-]
+KEYWORDS_TRUE = ["keyword"]
 KEYWORDS_FALSE = [
     "isPro", "ispremium", "is_premium", "is_pro", "lifetime",
     "CustomerInfo", "isSubscription", "issubscribe"
@@ -117,7 +111,7 @@ class FlutterPatcher:
             total_successful_patches += pp_patches
 
         if self.enable_asm_patch:
-            asm_patches = process_asm_patch(apk_path, apk_dir, skip_blutter=True)
+            asm_patches = process_asm_patch(apk_path, apk_dir)
             total_successful_patches += asm_patches
 
         libapp_path = os.path.join(apk_dir, "libapp.so")
@@ -359,13 +353,18 @@ def patch_false_functions(libso_path, related_funcs, indices):
     return results
 
 
-def patch_selected_functions(libso_path, related_funcs, patch_instr="wa add x0, x22, 0x20"):
-    """Interactive function patching with user selection.
+def patch_selected_functions(libso_path, related_funcs, patch_instr="wa add x0, x22, 0x20", indices=None):
+    """Function patching with specified indices.
+
+    WARNING: The interactive input() version that was here previously
+    conflicted with the curses TUI. The indices parameter must now
+    be provided explicitly.
 
     Args:
         libso_path: Path to libapp.so.
         related_funcs: List of (func_addr, offset) tuples.
         patch_instr: The r2 patch instruction to apply.
+        indices: List of 1-based indices to patch. If None, patches all.
 
     Returns:
         Dict mapping index to (func_addr, offset, patched, patched_at).
@@ -379,9 +378,8 @@ def patch_selected_functions(libso_path, related_funcs, patch_instr="wa add x0, 
         return {}
 
     max_index = len(related_funcs)
-    selection = input(f"\nEnter which function(s) to patch (e.g. 1,3,5 or 2-4 or 'all') [skip]: ").strip()
-    from .core import parse_selection
-    indices = parse_selection(selection, max_index)
+    if indices is None:
+        indices = list(range(1, max_index + 1))
     if not indices:
         print("No selection -- skipping patch step.")
         return {}
@@ -775,13 +773,12 @@ def process_pp_patch(apk_path, keywords_true=None, keywords_false=None,
     return apk_path, successful_patches
 
 
-def process_asm_patch(apk_path, apk_dir, skip_blutter=False):
+def process_asm_patch(apk_path, apk_dir):
     """Process asm folder based patching.
 
     Args:
         apk_path: Path to the APK file.
         apk_dir: Working directory for the APK.
-        skip_blutter: If True, skip the blutter step (already ran by caller).
 
     Returns:
         Number of successful patches.
@@ -792,17 +789,11 @@ def process_asm_patch(apk_path, apk_dir, skip_blutter=False):
 
     try:
         base = os.path.splitext(os.path.basename(apk_path))[0]
+        out_dir = run_blutter(base, apk_dir)
 
-        # Only run blutter if not already done by the caller
-        if not skip_blutter:
-            out_dir = run_blutter(base, apk_dir)
-            if not out_dir:
-                print("Blutter failed to create output directory")
-                return 0
-        else:
-            # Use existing blutter output directory
-            home = os.path.expanduser("~")
-            out_dir = os.path.join(home, "blutter-termux", f"out_dir_{base}")
+        if not out_dir:
+            print("Blutter failed to create output directory")
+            return 0
 
         asm_folder = os.path.join(out_dir, "asm")
         matches = search_asm_folder(asm_folder)

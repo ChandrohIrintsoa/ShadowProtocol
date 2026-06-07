@@ -83,7 +83,14 @@ def run_blutter(filename, apk_dir='.'):
     out_dir = os.path.join(home, "blutter-termux", f"out_dir_{filename}")
     cmd = ["python3", "blutter.py", extracted_path, out_dir]
     print("Running Blutter to extract files...")
-    subprocess.run(cmd, cwd=os.path.join(home, "blutter-termux"), check=True)
+    try:
+        subprocess.run(cmd, cwd=os.path.join(home, "blutter-termux"), check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Blutter execution failed (return code {e.returncode})")
+        return out_dir
+    except FileNotFoundError:
+        print("Blutter not found. Ensure blutter-termux is installed in ~/blutter-termux/")
+        return out_dir
 
     # Check if asm folder was created
     asm_folder = os.path.join(out_dir, "asm")
@@ -185,11 +192,7 @@ def find_related_functions(lib_path, pp_address, timeout=12):
 
     # Extract function-offset pairs
     triple_re = re.compile(r'(0x[0-9a-fA-F]+)\s+(0x[0-9a-fA-F]+)\s+(0x[0-9a-fA-F]+)')
-    matches = []
-    for ln in lines:
-        m = triple_re.search(ln)
-        if m:
-            matches.append((m.group(1), m.group(3)))
+    matches = [(m.group(1), m.group(3)) for ln in lines if (m := triple_re.search(ln))]
 
     if not matches:
         for ln in lines:

@@ -11,7 +11,6 @@ deduplicating all shared functionality.
 """
 
 import os
-import sys
 import glob
 import json
 import shutil

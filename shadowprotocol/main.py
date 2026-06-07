@@ -6,20 +6,15 @@ Fused version: TUI UI (v2) + Real Radare2 Functionality (v1)
 
 Interactive terminal UI with live logging, progress bar, and clean shutdown
 with real binary patching via Radare2 integration.
-
-Target selection:
-  [1] Auto-detect .so files in current directory (list selection)
-  [2] Manually enter the path to target file (text input)
-  Menus and selections appear OUTSIDE the log table.
+Manual path entry for target selection.
 """
 
-import os
 import sys
 import time
 import signal
 import curses
 import threading
-from typing import Optional, List
+from typing import Optional
 
 from .logger import LoggerHandler
 from .modes import get_mode, BaseMode
@@ -37,9 +32,10 @@ class ShadowProtocolApp:
 
     Manages the application lifecycle:
     - UI initialization (curses with ANSI fallback)
-    - User input handling (a/b/c/d/e/f for modes, 1/2 for target, q to quit)
+    - User input handling (a/b/c/d/e/f for modes, q to quit)
     - Mode execution in separate threads
-    - Target binary selection via TUI (auto-detect or manual path)
+    - Target binary selection (manual path entry)
+    - Offset collection for MODE A
     - Graceful shutdown with cleanup
     - Terminal resize adaptation
     """
@@ -59,24 +55,23 @@ class ShadowProtocolApp:
         self.current_target: Optional[str] = None
         self.current_offset: Optional[str] = None
 
-        # Selection state for TUI-based selection
-        self._selection_targets: Optional[List[str]] = None
-        self._selection_digit_buffer = ""
-
         # Signal handlers for external interrupts
         signal.signal(signal.SIGINT, self._handle_signal)
         signal.signal(signal.SIGTERM, self._handle_signal)
 
     def _handle_signal(self, signum, frame):
-        """Handle system signals (SIGINT, SIGTERM)."""
+        """Handle system signals (SIGINT, SIGTERM).
+
+        Sets flags to break the main loop and initiate cleanup.
+        """
         self.stop_requested = True
         self.running = False
 
     def display_welcome(self):
         """Display welcome messages with mode instructions."""
         self.logger.success("=== ShadowProtocol v3.0 - Fusion TUI + Radare2 ===")
-        self.logger.info("Press [1] to auto-detect and select a target")
-        self.logger.info("Press [2] to manually enter target path")
+        self.logger.info("Press [1] to enter target path manually")
+        self.logger.info("Press [2] to enter PPTool offset (for MODE A)")
         self.logger.info("Press [a], [b], [c] for binary patching modes")
         self.logger.info("Press [d] for Flutter Patcher mode")
         self.logger.info("Press [e] for Find Functions mode")
@@ -87,11 +82,18 @@ class ShadowProtocolApp:
     def _start_mode(self, mode_name: str):
         """Start a processing mode in a separate daemon thread.
 
+        Creates the mode instance via factory, sets the UI mode/status,
+        and launches execution in a background thread.
+
         Args:
             mode_name: 'A', 'B', 'C', 'D', 'E', or 'F'
         """
         if mode_name.upper() in MODES_REQUIRING_TARGET and not self.current_target:
-            self.logger.warning("Please select a target first (option [1] or [2])")
+            self.logger.warning("Please select a target first (option [1])")
+            return
+
+        if mode_name.upper() == 'A' and not self.current_offset:
+            self.logger.warning("Please provide an offset first (option [2])")
             return
 
         try:
@@ -114,7 +116,11 @@ class ShadowProtocolApp:
             self.logger.error(str(e))
 
     def _execute_mode_thread(self):
-        """Execute mode in background thread and update status on completion."""
+        """Execute mode in background thread and update status on completion.
+
+        Called as the thread target. Updates the UI status to
+        'Completed', 'Stopped', or 'Error' based on the result.
+        """
         try:
             success = self.current_mode.execute()
             if success:
@@ -127,236 +133,99 @@ class ShadowProtocolApp:
             self.logger.error(f"Mode error: {e}")
             self.ui.set_status("Error")
 
-    # -- Target selection: auto-detect ---------------------------------
+    def _request_target_path(self):
+        """Request manual target path entry via TUI input mode."""
+        if self.ui.is_input_active:
+            return  # Already in input mode
 
-    def select_target_interactive(self):
-        """Start TUI-based target selection (auto-detect .so files).
+        self.logger.info("Enter the path to the target .so file:")
+        self.ui.enter_input_mode("Path: ", self._on_target_path_entered)
 
-        Instead of using print/input (which breaks the TUI),
-        this method searches for .so files and enters the UI's
-        selection mode. The main loop handles input for selection.
-        """
-        self.logger.info("Searching for .so files...")
-        targets = self.target_selector.find_targets()
-
-        if not targets:
-            self.logger.warning("No .so files found. Use [2] to enter path manually.")
-            return
-
-        self.logger.info(f"{len(targets)} target(s) detected")
-        self._selection_targets = targets
-
-        # Format targets for TUI display
-        formatted = self.target_selector.format_target_list(targets)
-
-        # Enter TUI selection mode
-        self.ui.enter_selection_mode(formatted, prompt="Select target (.so)")
-        self._selection_digit_buffer = ""
-
-    def _handle_selection_input(self, ch: str) -> bool:
-        """Handle input during TUI target selection mode.
-
-        Processes number input (1-N) to select a target,
-        and 'q' to cancel selection.
-        """
-        if not self._selection_targets:
-            self.ui.exit_selection_mode()
-            return True
-
-        max_idx = len(self._selection_targets)
-
-        if ch == 'q':
-            self.ui.exit_selection_mode()
-            self.logger.info("Target selection cancelled")
-            return True
-
-        if ch.isdigit():
-            self._selection_digit_buffer += ch
-            try:
-                idx = int(self._selection_digit_buffer)
-                if 1 <= idx <= max_idx:
-                    selected = self.target_selector.get_target_by_index(
-                        self._selection_targets, idx
-                    )
-                    self.ui.exit_selection_mode()
-                    self._selection_targets = None
-                    self._selection_digit_buffer = ""
-
-                    if selected:
-                        self.current_target = selected
-                        arch = self.target_selector.validator.get_arch(selected) or "Unknown"
-                        self.logger.success(f"Target selected: {selected} ({arch})")
-                    return True
-                elif idx * 10 > max_idx:
-                    self._selection_digit_buffer = ""
-                    self.logger.warning(f"Invalid selection. Use [1-{max_idx}]")
-                    return True
-            except ValueError:
-                self._selection_digit_buffer = ""
-
-        return True
-
-    # -- Target selection: manual path ---------------------------------
-
-    def select_target_manual(self):
-        """Start TUI-based manual path input.
-
-        The user types the file path directly in the TUI.
-        This is useful when .so files are in a different directory
-        or the auto-detection doesn't find the desired target.
-        """
-        self.ui.enter_input_mode(
-            prompt="Enter target path",
-            hint="Supported: ELF .so, .apk, .apks files  |  Tab completion not available"
-        )
-
-    def _handle_input_mode(self, ch: str) -> bool:
-        """Handle input during manual path entry mode.
-
-        The user types characters that appear in the TUI input field.
-        Enter confirms the path, Escape/q cancels.
+    def _on_target_path_entered(self, path: str):
+        """Callback when user submits a target path.
 
         Args:
-            ch: The raw key pressed (case preserved for paths)
-
-        Returns:
-            True to continue, False to quit application
+            path: The file path entered by the user.
         """
-        if ch == '\n':
-            # Enter pressed - confirm path
-            path = self.ui.get_input_buffer().strip()
-            if not path:
-                self.ui.set_input_error("Path cannot be empty")
-                return True
+        validated = self.target_selector.validate_manual_path(path)
 
-            # Expand ~ to home directory
-            path = os.path.expanduser(path)
+        if validated:
+            self.current_target = validated
+            info = self.target_selector.get_file_info(validated)
+            self.logger.success(f"Target selected: {validated}")
+            self.logger.info(f"  {info}")
+        else:
+            self.logger.error(f"Invalid target: {path}")
+            self.logger.info("The file must exist and be a valid ELF binary (.so)")
 
-            # Resolve relative path
-            if not os.path.isabs(path):
-                path = os.path.abspath(path)
+    def _request_offset(self):
+        """Request PPTool offset entry via TUI input mode (for MODE A)."""
+        if self.ui.is_input_active:
+            return  # Already in input mode
 
-            # Validate the path
-            if not os.path.exists(path):
-                self.ui.set_input_error(f"File not found: {path}")
-                return True
+        if not self.current_target:
+            self.logger.warning("Please select a target first (option [1])")
+            return
 
-            if os.path.isdir(path):
-                # If directory, try to find .so files inside
-                self.ui.exit_input_mode()
-                self.logger.info(f"Directory detected, searching for .so files in: {path}")
-                self.target_selector = TargetSelector(start_path=path)
-                targets = self.target_selector.find_targets()
-                if targets:
-                    self._selection_targets = targets
-                    formatted = self.target_selector.format_target_list(targets)
-                    self.logger.info(f"{len(targets)} target(s) found in directory")
-                    self.ui.enter_selection_mode(formatted, prompt=f"Select from {path}")
-                    self._selection_digit_buffer = ""
-                else:
-                    self.logger.warning(f"No .so files found in: {path}")
-                return True
+        self.logger.info("Enter the PPTool offset (format: 0x...):")
+        self.ui.enter_input_mode("Offset: ", self._on_offset_entered)
 
-            # Valid file path - set as target
-            self.ui.exit_input_mode()
-            self.current_target = path
+    def _on_offset_entered(self, offset: str):
+        """Callback when user submits an offset.
 
-            # Show file info
-            arch = self.target_selector.validator.get_arch(path) or "Unknown"
-            size = os.path.getsize(path) / 1024 / 1024
-            ext = os.path.splitext(path)[1].lower()
-
-            if ext in ('.apk', '.apks'):
-                self.logger.success(f"Target selected: {path} ({size:.2f} MB, {ext})")
-            elif self.target_selector.validator.is_valid_so(path):
-                writable = "RW" if self.target_selector.validator.is_writable(path) else "RO"
-                self.logger.success(f"Target selected: {path} ({arch}, {writable}, {size:.2f} MB)")
-            else:
-                self.logger.success(f"Target selected: {path} ({size:.2f} MB)")
-                self.logger.warning("File is not a valid ELF binary - some modes may not work")
-
-            return True
-
-        elif ch == '\x7f':
-            # Backspace - delete last character
-            buf = self.ui.get_input_buffer()
-            if buf:
-                self.ui.input_buffer = buf[:-1]
-                self.ui.input_error = ""
-            return True
-
-        elif ch == '\x1b':
-            # Escape - cancel input
-            self.ui.exit_input_mode()
-            self.logger.info("Manual path entry cancelled")
-            return True
-
-        elif ch == 'q' and not self.ui.get_input_buffer():
-            # q on empty buffer = cancel
-            self.ui.exit_input_mode()
-            self.logger.info("Manual path entry cancelled")
-            return True
-
-        elif len(ch) == 1 and ord(ch) >= 32:
-            # Regular printable character - add to buffer
-            self.ui.input_buffer += ch
-            self.ui.input_error = ""
-            return True
-
-        return True
-
-    # -- Main input router ---------------------------------------------
+        Args:
+            offset: The offset string entered by the user.
+        """
+        import re
+        if re.match(r'^0x[0-9a-fA-F]+$', offset):
+            self.current_offset = offset
+            self.logger.success(f"Offset set: {offset}")
+        else:
+            self.logger.error(f"Invalid offset format: {offset}")
+            self.logger.info("Expected format: 0x... (e.g. 0x1234)")
 
     def handle_input(self, ch: str) -> bool:
         """Handle keyboard input from the main loop.
 
-        Routes input to the appropriate handler based on current UI mode:
-        - Input mode (manual path entry) → _handle_input_mode
-        - Selection mode (auto-detect list) → _handle_selection_input
-        - Normal mode → key commands (1, 2, a-f, q)
-
         Args:
-            ch: The key pressed
+            ch: The key pressed (lowercase)
 
         Returns:
             False if the application should quit, True otherwise.
         """
-        # If in input mode, route to input handler (preserve case)
-        if self.ui.is_in_input_mode():
-            return self._handle_input_mode(ch)
-
-        # If in selection mode, route to selection handler
-        if self.ui.is_in_selection_mode():
-            return self._handle_selection_input(ch)
-
-        # Normal mode
         if ch == 'q' or ch == '\x03':  # 'q' or Ctrl+C
             self.logger.info("Shutdown requested by user...")
             return False
         elif ch == '1':
-            self.select_target_interactive()
+            self._request_target_path()
         elif ch == '2':
-            self.select_target_manual()
+            self._request_offset()
         elif ch in ('a', 'b', 'c', 'd', 'e', 'f'):
             if self.mode_thread and self.mode_thread.is_alive():
                 self.logger.warning("A process is already running")
             else:
                 self.logger.info(f"Starting MODE {ch.upper()}...")
-                if ch.upper() == 'A':
-                    self.logger.info("For MODE A, provide offset via parameter")
                 self._start_mode(ch)
         else:
             self.logger.warning(f"Unknown key: {ch}")
         return True
 
     def _cleanup(self):
-        """Cleanup resources before exit."""
+        """Cleanup resources before exit.
+
+        - Stops the current mode execution
+        - Waits for mode thread with 5-second timeout
+        - Displays final messages
+        - Restores terminal state
+        """
         if self.logger:
             self.logger.info("Clean shutdown in progress...")
 
+        # Signal mode to stop
         if self.current_mode:
             self.current_mode.stop()
 
+        # Wait for mode thread to finish
         if self.mode_thread and self.mode_thread.is_alive():
             if self.logger:
                 self.logger.warning("Interrupting current process...")
@@ -366,6 +235,7 @@ class ShadowProtocolApp:
                 if self.logger:
                     self.logger.error("Timeout - forcing stop")
 
+        # Final display refresh to show cleanup messages
         if self.ui:
             self.ui.refresh()
             time.sleep(0.3)
@@ -373,6 +243,7 @@ class ShadowProtocolApp:
         if self.logger:
             self.logger.success("Cleanup complete - Goodbye!")
 
+        # Final refresh and terminal restore
         if self.ui:
             self.ui.refresh()
             time.sleep(0.5)
@@ -381,10 +252,10 @@ class ShadowProtocolApp:
     def _main_loop(self):
         """Common main loop logic shared by CursesUI and ANSIUI.
 
-        Core event loop:
+        This is the core event loop that:
         1. Refreshes the display
         2. Detects terminal resize
-        3. Processes keyboard input (handles all modes)
+        3. Processes keyboard input
         4. Monitors mode thread completion
         5. Sleeps briefly to reduce CPU usage
         """
@@ -434,6 +305,9 @@ class ShadowProtocolApp:
     def run(self, mode: Optional[str] = None):
         """Run the application.
 
+        Attempts to use curses for the best terminal experience.
+        Falls back to ANSI escape sequences if curses is unavailable.
+
         Args:
             mode: Optional mode to auto-run ('A'-'F').
                   If None, starts in interactive mode.
@@ -458,7 +332,14 @@ class ShadowProtocolApp:
                 sys.exit(1)
 
     def _curses_main(self, stdscr):
-        """Initialize CursesUI and run main loop."""
+        """Initialize CursesUI and run main loop.
+
+        Called by curses.wrapper which handles terminal
+        setup and teardown automatically.
+
+        Args:
+            stdscr: The curses standard screen object
+        """
         self.ui = CursesUI(stdscr)
         self.logger = LoggerHandler(callback=self.ui.add_log)
         self._main_loop()

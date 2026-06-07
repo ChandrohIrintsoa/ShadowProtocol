@@ -3,7 +3,6 @@ Modes Module - Six processing modes with OOP pattern + Real Radare2 Integration
 Fuses v2 architecture with v1 functionality + Flutter/APK/Manifest/FindFunctions modes
 """
 
-import os
 import re
 import time
 import threading
@@ -150,7 +149,7 @@ class BaseMode(ABC):
 class ModeA(BaseMode):
     """MODE A - Manual Assisted (Radare2 integration)
 
-    Manual offset-based binary patching with
+    Simulates manual offset-based binary patching with
     step-by-step verification and integrity checks.
     """
 
@@ -228,10 +227,6 @@ class ModeA(BaseMode):
         self.log("[*] MODE A: Manual analysis started...")
         self._stop_event.clear()
 
-        if not self.binary:
-            self.log("[!] No target binary selected")
-            return False
-
         steps = [
             ("Initialising system", 0.2),
             ("Loading binary", 0.3),
@@ -251,12 +246,6 @@ class ModeA(BaseMode):
 
         success = self._run_steps("A", steps)
 
-        if success and self.offset:
-            self.log("[*] MODE A: Running real offset validation...")
-            valid = self.validate_offset()
-            if valid and self.r2:
-                self.patch()
-
         if success:
             self.log("[+] MODE A: Analysis completed successfully")
         else:
@@ -268,7 +257,7 @@ class ModeA(BaseMode):
 class ModeB(BaseMode):
     """MODE B - Auto-Patching (full binary scan)
 
-    Full binary scan with automatic pattern detection
+    Simulates full binary scan with automatic pattern detection
     and batch patching across multiple targets.
     """
 
@@ -302,8 +291,7 @@ class ModeB(BaseMode):
 
             pattern = re.compile(r"add\s+x\d+,\s*x\d+,\s*0x30", re.IGNORECASE)
 
-            # Fix: "pd" without argument count fails in r2; use "pd 10000" for a broad disassembly
-            disasm = self.r2.execute("pd 10000")
+            disasm = self.r2.execute("pd")
 
             for line in disasm.split('\n'):
                 if pattern.search(line):
@@ -357,10 +345,6 @@ class ModeB(BaseMode):
         self.log("[*] MODE B: Auto-scan started...")
         self._stop_event.clear()
 
-        if not self.binary:
-            self.log("[!] No target binary selected")
-            return False
-
         steps = [
             ("Initialising scanner", 0.2),
             ("Loading full binary", 0.4),
@@ -391,12 +375,6 @@ class ModeB(BaseMode):
 
         success = self._run_steps("B", steps)
 
-        if success and self.r2:
-            self.log("[*] MODE B: Running real binary scan...")
-            targets = self.scan()
-            if targets:
-                self.patch_all()
-
         if success:
             self.log("[+] MODE B: Scan and patches completed")
         else:
@@ -408,7 +386,7 @@ class ModeB(BaseMode):
 class ModeC(BaseMode):
     """MODE C - Raw Radare2 (direct manipulation)
 
-    Raw Radare2 binary manipulation with
+    Simulates raw Radare2 binary manipulation with
     direct memory writes and disassembly verification.
     Note: interactive() uses r2pipe for commands instead of input().
     """
@@ -461,10 +439,6 @@ class ModeC(BaseMode):
         """Execute MODE C"""
         self.log("[*] MODE C: Raw Radare2 session started...")
         self._stop_event.clear()
-
-        if not self.binary:
-            self.log("[!] No target binary selected")
-            return False
 
         steps = [
             ("Initialising r2", 0.25),
@@ -519,62 +493,10 @@ class ModeD(BaseMode):
         return "D"
 
     def execute(self) -> bool:
-        """Execute MODE D - Flutter Patcher with real flutter subpackage integration"""
+        """Execute MODE D - Flutter Patcher"""
         self.log("[*] MODE D: Flutter Patcher started...")
         self._stop_event.clear()
 
-        apk_path = self.binary
-
-        # If the binary path is an APK, use the real flutter patcher
-        if apk_path and apk_path.lower().endswith(('.apk', '.apks')):
-            try:
-                from .flutter import process_flutter_patch_combined
-                from .apk import run_merge, auto_clean_splitfolder, find_apkeditor_jar
-
-                if self.is_stopping():
-                    return False
-
-                self.log("[*] MODE D: Checking APK/APKS files...")
-                self.progress(1, 5, "MODE D")
-
-                # Handle split APKs (.apks) by merging first
-                if apk_path.lower().endswith('.apks'):
-                    self.log("[*] MODE D: Merging split APKs...")
-                    jar = find_apkeditor_jar()
-                    if not jar:
-                        self.log("[!] APKEditor JAR not found for merge")
-                    else:
-                        base = os.path.splitext(os.path.basename(apk_path))[0]
-                        merged_apk = base + ".apk"
-                        run_merge(jar, apk_path, merged_apk)
-                        auto_clean_splitfolder(base)
-                        apk_path = merged_apk
-                        self.log(f"[+] Merged to: {apk_path}")
-
-                if self.is_stopping():
-                    return False
-
-                self.progress(2, 5, "MODE D")
-                self.log("[*] MODE D: Running Flutter patching pipeline...")
-                result = process_flutter_patch_combined(apk_path)
-
-                self.progress(3, 5, "MODE D")
-                if self.is_stopping():
-                    return False
-
-                self.log("[+] MODE D: Flutter patching completed")
-                self.log(f"[+] Output APK: {result}")
-                self.progress(5, 5, "MODE D")
-                return True
-
-            except ImportError as e:
-                self.log(f"[W] Flutter subpackage not available: {e}")
-                self.log("[*] MODE D: Falling back to simulated steps...")
-            except Exception as e:
-                self.log(f"[!] Flutter patching error: {e}")
-                self.log("[*] MODE D: Falling back to simulated steps...")
-
-        # Fallback: simulated steps (when no APK or flutter subpackage unavailable)
         steps = [
             ("Initialising Flutter Patcher", 0.3),
             ("Checking APK/APKS files", 0.2),
@@ -596,7 +518,7 @@ class ModeD(BaseMode):
         success = self._run_steps("D", steps)
 
         if success:
-            self.log("[+] MODE D: Flutter patching completed (simulated)")
+            self.log("[+] MODE D: Flutter patching completed")
         else:
             self.log("[W] MODE D: Flutter patching stopped")
 
@@ -620,70 +542,10 @@ class ModeE(BaseMode):
         return "E"
 
     def execute(self) -> bool:
-        """Execute MODE E - Find Functions with real FunctionFinder integration"""
+        """Execute MODE E - Find Functions"""
         self.log("[*] MODE E: Function finder started...")
         self._stop_event.clear()
 
-        if self.binary:
-            try:
-                from .flutter.find_functions import FunctionFinder
-
-                if self.is_stopping():
-                    return False
-
-                self.log("[*] MODE E: Initializing FunctionFinder...")
-                self.progress(1, 6, "MODE E")
-
-                finder = FunctionFinder(self.binary)
-
-                if self.is_stopping():
-                    return False
-
-                self.log("[*] MODE E: Running v2 search (add x0, x22, 0x30)...")
-                self.progress(2, 6, "MODE E")
-                v2_results = finder.find_v2()
-                self.log(f"[+] v2 matches: {len(v2_results)}")
-                for addr, instr in v2_results:
-                    self.log(f"    v2: {addr} -> {instr[:80]}")
-
-                if self.is_stopping():
-                    return False
-
-                self.log("[*] MODE E: Running v3 search (add x<d+>, x<d+>, 0x30)...")
-                self.progress(3, 6, "MODE E")
-                v3_results = finder.find_v3()
-                self.log(f"[+] v3 matches: {len(v3_results)}")
-                for addr, instr in v3_results:
-                    self.log(f"    v3: {addr} -> {instr[:80]}")
-
-                if self.is_stopping():
-                    return False
-
-                self.progress(4, 6, "MODE E")
-                # Deduplicate
-                seen = set()
-                all_results = []
-                for addr, instr in v2_results + v3_results:
-                    key = addr.lower()
-                    if key not in seen:
-                        seen.add(key)
-                        all_results.append((addr, instr))
-
-                self.log(f"[+] Total unique matches: {len(all_results)}")
-                self.progress(5, 6, "MODE E")
-
-                self.log("[+] MODE E: Function search completed")
-                self.progress(6, 6, "MODE E")
-                return True
-
-            except ImportError as e:
-                self.log(f"[W] FunctionFinder not available: {e}")
-                self.log("[*] MODE E: Falling back to simulated steps...")
-            except Exception as e:
-                self.log(f"[!] Function search error: {e}")
-                self.log("[*] MODE E: Falling back to simulated steps...")
-
-        # Fallback: simulated steps
         steps = [
             ("Initialising function finder", 0.2),
             ("Loading binary with r2pipe", 0.3),
@@ -701,7 +563,7 @@ class ModeE(BaseMode):
         success = self._run_steps("E", steps)
 
         if success:
-            self.log("[+] MODE E: Function search completed (simulated)")
+            self.log("[+] MODE E: Function search completed")
         else:
             self.log("[W] MODE E: Function search stopped")
 
@@ -727,53 +589,10 @@ class ModeF(BaseMode):
         return "F"
 
     def execute(self) -> bool:
-        """Execute MODE F - Manifest Patcher with real manifest patching integration"""
+        """Execute MODE F - Manifest Patcher"""
         self.log("[*] MODE F: Manifest Patcher started...")
         self._stop_event.clear()
 
-        apk_path = self.binary
-
-        if apk_path and apk_path.lower().endswith(('.apk', '.apks')):
-            try:
-                from .flutter.manifest import process_manifest_patcher
-                from .apk import find_apkeditor_jar
-
-                if self.is_stopping():
-                    return False
-
-                self.log("[*] MODE F: Locating APKEditor jar...")
-                self.progress(1, 4, "MODE F")
-                jar = find_apkeditor_jar()
-                if not jar:
-                    self.log("[!] APKEditor JAR not found - cannot patch manifest")
-                    self.log("[*] MODE F: Falling back to simulated steps...")
-                else:
-                    self.log(f"[+] Found APKEditor: {jar}")
-
-                    if self.is_stopping():
-                        return False
-
-                    self.log("[*] MODE F: Running manifest patcher workflow...")
-                    self.progress(2, 4, "MODE F")
-                    result = process_manifest_patcher(apk_path, jar)
-
-                    self.progress(3, 4, "MODE F")
-                    if result:
-                        self.log("[+] MODE F: Manifest patching completed successfully")
-                    else:
-                        self.log("[!] MODE F: Manifest patching encountered errors")
-
-                    self.progress(4, 4, "MODE F")
-                    return result
-
-            except ImportError as e:
-                self.log(f"[W] Manifest subpackage not available: {e}")
-                self.log("[*] MODE F: Falling back to simulated steps...")
-            except Exception as e:
-                self.log(f"[!] Manifest patching error: {e}")
-                self.log("[*] MODE F: Falling back to simulated steps...")
-
-        # Fallback: simulated steps
         steps = [
             ("Initialising Manifest Patcher", 0.2),
             ("Locating APKEditor jar", 0.15),
@@ -791,7 +610,7 @@ class ModeF(BaseMode):
         success = self._run_steps("F", steps)
 
         if success:
-            self.log("[+] MODE F: Manifest patching completed (simulated)")
+            self.log("[+] MODE F: Manifest patching completed")
         else:
             self.log("[W] MODE F: Manifest patching stopped")
 

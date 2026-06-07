@@ -16,15 +16,10 @@ import shutil
 import subprocess
 
 
-# Each patch is a 3-tuple: (pattern, replacement, description)
-# - pattern: compiled regex or callable
-# - replacement: replacement string (for regex) or None (for callable)
-# - description: human-readable description
 MANIFEST_PATCHES = [
     (re.compile(r'<[^>]*\b(?:com\.pairip\.licensecheck|android\.vending\.CHECK_LICENSE)\b[^>]*/>'),
      '<!-- License check disabled -->', "CHECK_LICENSE"),
-    (re.compile(r'android:extractNativeLibs="false"'),
-     '', "extractNativeLibs"),
+    ("extractNativeLibs", lambda content: content.replace('android:extractNativeLibs="false"', ''))
 ]
 
 
@@ -50,38 +45,65 @@ def safe_regex_operation(pattern, replacement, content, description, file_path="
         else:
             return True, content, f"Pattern not matched: {description}"
     except Exception as e:
-        error_msg = f"Regex error [{description}]: {str(e)}"
+        error_message = f"Regex error [{description}]: {str(e)}"
         if file_path:
-            error_msg += f" - File: {os.path.basename(file_path)}"
-        return False, content, error_msg
+            error_message += f" - File: {os.path.basename(file_path)}"
+        return False, content, error_message
 
 
-def _run_command(command, verbose=True, return_on_error=True):
+def safe_function_operation(func, content, description, file_path=""):
+    """Safely apply a function transformation to content.
+
+    Args:
+        func: Transformation function.
+        content: The content to modify.
+        description: Description of the operation for error reporting.
+        file_path: Optional file path for error reporting.
+
+    Returns:
+        Tuple of (success, new_content, error_message).
+    """
+    try:
+        new_content = func(content)
+        return True, new_content, None
+    except Exception as e:
+        error_message = f"Function error [{description}]: {str(e)}"
+        if file_path:
+            error_message += f" - File: {os.path.basename(file_path)}"
+        return False, content, error_message
+
+
+def _run_command(command, verbose=True, exit_on_error=True):
     """Run a shell command.
 
     Args:
         command: Shell command string.
         verbose: Print errors on failure.
-        return_on_error: If True, return empty string on error.
-                         If False, raise the exception.
+        exit_on_error: If True, raise RuntimeError on command failure.
 
     Returns:
-        Command stdout, or empty string on failure (when return_on_error=True).
+        Command stdout, or empty string on failure (when exit_on_error=False).
+
+    Raises:
+        RuntimeError: If exit_on_error=True and the command fails.
     """
     try:
         result = subprocess.run(command, shell=True, capture_output=True, text=True)
         if result.returncode != 0:
             if verbose:
                 print(f"Command failed: {command}\n{result.stderr}")
-            if return_on_error:
-                return ""
+            if exit_on_error:
+                raise RuntimeError(f"Command failed with code {result.returncode}: {command}")
+            return ""
         return result.stdout.strip()
+    except RuntimeError:
+        raise  # Re-raise RuntimeError from exit_on_error
     except Exception as e:
         if verbose:
             print(f"Command error: {command}\n{str(e)}")
-        if return_on_error:
-            return ""
-        raise
+        if exit_on_error:
+            raise RuntimeError(f"Command error: {str(e)}")
+        return ""
 
 
 def _decompile_apk(apk_path, output_dir, jar_file):
@@ -97,7 +119,10 @@ def _decompile_apk(apk_path, output_dir, jar_file):
     """
     print("Decompiling APK...")
     cmd = f'java -jar "{jar_file}" d -i "{apk_path}" -o "{output_dir}"'
-    _run_command(cmd, verbose=False, return_on_error=True)
+    try:
+        _run_command(cmd, verbose=False, exit_on_error=False)
+    except RuntimeError:
+        return False
     return os.path.exists(output_dir)
 
 
@@ -114,7 +139,10 @@ def _build_apk(source_dir, output_apk, jar_file):
     """
     print("Building APK...")
     cmd = f'java -jar "{jar_file}" b -i "{source_dir}" -o "{output_apk}"'
-    _run_command(cmd, verbose=False, return_on_error=True)
+    try:
+        _run_command(cmd, verbose=False, exit_on_error=False)
+    except RuntimeError:
+        return False
     if os.path.exists(output_apk):
         file_size = os.path.getsize(output_apk) / (1024 * 1024)
         print(f"APK successfully built ({file_size:.2f} MB)")
@@ -151,16 +179,30 @@ def patch_android_manifest(decompile_dir):
             print("No manifest patches defined")
             return True
 
-        for pattern, replacement, description in MANIFEST_PATCHES:
-            success, new_content, error_msg = safe_regex_operation(
-                pattern, replacement, content, description, manifest_path
-            )
-            if not success:
-                print(f"Manifest patch error: {error_msg}")
-                continue
-            if new_content != content:
-                content = new_content
-                print(f"Applied: {description}")
+        for patch in MANIFEST_PATCHES:
+            if len(patch) == 3:
+                pattern, replacement, description = patch
+                success, new_content, error_msg = safe_regex_operation(
+                    pattern, replacement, content, description, manifest_path
+                )
+                if not success:
+                    print(f"Manifest patch error: {error_msg}")
+                    continue
+                if new_content != content:
+                    content = new_content
+                    print(f"Applied (regex): {description}")
+
+            elif len(patch) == 2:
+                description, patch_func = patch
+                success, new_content, error_msg = safe_function_operation(
+                    patch_func, content, description, manifest_path
+                )
+                if not success:
+                    print(f"Manifest patch error: {error_msg}")
+                    continue
+                if new_content != content:
+                    content = new_content
+                    print(f"Applied (function): {description}")
 
         if content != original_content:
             with open(manifest_path, 'w', encoding='utf-8') as f:
