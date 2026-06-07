@@ -1,5 +1,9 @@
 """
 Validator - Cross-file validation & integrity checks
+
+Key improvements (no business logic changes):
+- Validates Python files in all subdirectories (not just top-level)
+- Better error handling and reporting
 """
 
 import os
@@ -78,7 +82,17 @@ class ProjectValidator:
         print("PROJECT VALIDATION - ShadowProtocol v3.0")
         print("="*80 + "\n")
 
-        py_files = list(self.project_path.glob("*.py"))
+        # Search recursively for all .py files in the project
+        py_files = list(self.project_path.rglob("*.py"))
+
+        # Filter out __pycache__ and virtual environment directories
+        py_files = [
+            f for f in py_files
+            if '__pycache__' not in str(f)
+            and 'site-packages' not in str(f)
+            and '.egg-info' not in str(f)
+            and 'venv' not in str(f)
+        ]
 
         if not py_files:
             print("[!] No Python files found")
@@ -87,15 +101,17 @@ class ProjectValidator:
         print(f"[*] Validating {len(py_files)} files...\n")
 
         for py_file in py_files:
-            print(f"Checking: {py_file.name}")
+            print(f"Checking: {py_file.relative_to(self.project_path)}")
             unused = self.code_validator.find_unused_imports(str(py_file))
             if unused:
-                self.issues['warnings'].append(f"{py_file.name}: Unused imports: {', '.join(unused)}")
+                rel_path = str(py_file.relative_to(self.project_path))
+                self.issues['warnings'].append(f"{rel_path}: Unused imports: {', '.join(unused)}")
 
         for py_file in py_files:
             unused = self.code_validator.find_unused_variables(str(py_file))
             if unused:
-                self.issues['warnings'].append(f"{py_file.name}: Unused variables: {', '.join(unused)}")
+                rel_path = str(py_file.relative_to(self.project_path))
+                self.issues['warnings'].append(f"{rel_path}: Unused variables: {', '.join(unused)}")
 
         self._print_report()
 

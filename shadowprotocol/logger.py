@@ -3,6 +3,7 @@ Logger Handler - Thread-safe logging system with timestamps
 Callback-based architecture for real-time UI updates
 """
 
+import os
 import threading
 from datetime import datetime
 from typing import Callable, Optional
@@ -17,15 +18,18 @@ class LoggerHandler:
     safe concurrent access from mode execution threads.
     """
 
-    def __init__(self, callback: Optional[Callable] = None):
+    def __init__(self, callback: Optional[Callable] = None, log_file: Optional[str] = None):
         """Initialize logger with optional callback for UI updates.
 
         Args:
             callback: Function called with each formatted log message.
                       Typically UIManager.add_log() for real-time display.
+            log_file: Optional path to a log file for persistent logging.
+                      If None, logging is callback-only (no file output).
         """
         self.callback = callback
         self.lock = threading.Lock()
+        self._log_file = log_file
 
     def _format(self, prefix: str, message: str) -> str:
         """Format a message with timestamp and level prefix.
@@ -40,10 +44,27 @@ class LoggerHandler:
         timestamp = datetime.now().strftime("%H:%M:%S")
         return f"[{timestamp}] {prefix} {message}"
 
+    def _write_to_file(self, formatted_msg: str) -> None:
+        """Append a formatted message to the log file if configured.
+
+        Args:
+            formatted_msg: The fully formatted log message.
+        """
+        if self._log_file:
+            try:
+                log_dir = os.path.dirname(self._log_file)
+                if log_dir:
+                    os.makedirs(log_dir, exist_ok=True)
+                with open(self._log_file, "a", encoding="utf-8") as f:
+                    f.write(formatted_msg + "\n")
+            except OSError:
+                pass
+
     def info(self, message: str):
         """Log informational message (cyan prefix [*])"""
         msg = self._format("[*]", message)
         with self.lock:
+            self._write_to_file(msg)
             if self.callback:
                 self.callback(msg)
 
@@ -51,6 +72,7 @@ class LoggerHandler:
         """Log success message (green prefix [+])"""
         msg = self._format("[+]", message)
         with self.lock:
+            self._write_to_file(msg)
             if self.callback:
                 self.callback(msg)
 
@@ -58,6 +80,7 @@ class LoggerHandler:
         """Log error message (red prefix [!])"""
         msg = self._format("[!]", message)
         with self.lock:
+            self._write_to_file(msg)
             if self.callback:
                 self.callback(msg)
 
@@ -65,6 +88,7 @@ class LoggerHandler:
         """Log warning message (yellow prefix [W])"""
         msg = self._format("[W]", message)
         with self.lock:
+            self._write_to_file(msg)
             if self.callback:
                 self.callback(msg)
 
@@ -72,5 +96,6 @@ class LoggerHandler:
         """Log debug message (dim yellow prefix [D])"""
         msg = self._format("[D]", message)
         with self.lock:
+            self._write_to_file(msg)
             if self.callback:
                 self.callback(msg)

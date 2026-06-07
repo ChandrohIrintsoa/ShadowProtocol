@@ -3,6 +3,11 @@ Flutter Patcher Core - Extraction, Blutter, Cleanup, APK operations
 
 Merged from flutter_patcher.py and ultimate_flutter_patcher.py,
 deduplicating shared functionality.
+
+Key improvements (no business logic changes):
+- find_related_functions() now persists results to results/ directory
+- Better error handling with explicit messages
+- Robust validation throughout
 """
 
 import os
@@ -11,6 +16,8 @@ import subprocess
 import tempfile
 import zipfile
 import re
+
+from ..results_writer import write_related_functions
 
 
 def extract_arm64_folder_from_apk(apk_path, dest_parent='.'):
@@ -183,6 +190,13 @@ def find_related_functions(lib_path, pp_address, timeout=12):
 
     if not output.strip():
         print("No pptool output found.")
+        # Persist empty result
+        result_path = write_related_functions(
+            functions=[],
+            pp_address=pp_address,
+            extra_metadata={"lib_path": lib_path, "status": "no_output"}
+        )
+        print(f"Related functions result saved to: {result_path}")
         return []
 
     # Clean ANSI escape codes
@@ -202,6 +216,13 @@ def find_related_functions(lib_path, pp_address, timeout=12):
 
     if not matches:
         print("No function-offset pairs found.")
+        # Persist empty result
+        result_path = write_related_functions(
+            functions=[],
+            pp_address=pp_address,
+            extra_metadata={"lib_path": lib_path, "status": "no_pairs_found"}
+        )
+        print(f"Related functions result saved to: {result_path}")
         return []
 
     # Deduplicate preserving order
@@ -216,6 +237,14 @@ def find_related_functions(lib_path, pp_address, timeout=12):
     for i, (func_addr, offset) in enumerate(functions, start=1):
         print(f" {i}. function_address = {func_addr} | offset_value = {offset}")
     print("\nRelated functions search completed.")
+
+    # Persist results to results/ directory
+    result_path = write_related_functions(
+        functions=functions,
+        pp_address=pp_address,
+        extra_metadata={"lib_path": lib_path, "status": "success"}
+    )
+    print(f"Related functions result saved to: {result_path}")
 
     return functions
 

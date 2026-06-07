@@ -6,6 +6,10 @@ Merged from find_fnc_v2.py and find_fnc_v3.py:
 - v3: Finds functions with `stp x29, x30, [x15, -0x10]!` + `add x<d+>, x<d+>, 0x30` (any register)
 
 Uses r2pipe for proper Radare2 API integration.
+
+Key improvements (no business logic changes):
+- All search results are persisted to results/ directory via results_writer
+- Better error handling with explicit messages
 """
 
 import re
@@ -16,6 +20,8 @@ try:
     HAS_R2PIPE = True
 except ImportError:
     HAS_R2PIPE = False
+
+from ..results_writer import write_function_results
 
 
 class FunctionFinder:
@@ -133,6 +139,19 @@ class FunctionFinder:
         finally:
             self._close()
 
+        # Persist v2 results
+        if results:
+            func_data = [
+                {"address": addr, "instruction": instr}
+                for addr, instr in results
+            ]
+            result_path = write_function_results(
+                functions=func_data,
+                search_type="v2",
+                extra_metadata={"binary": self.binary_path}
+            )
+            print(f"[+] v2 function search results saved to: {result_path}")
+
         return results
 
     def find_v3(self) -> List[Tuple[str, str]]:
@@ -196,6 +215,19 @@ class FunctionFinder:
             print(f"v3 search error: {e}")
         finally:
             self._close()
+
+        # Persist v3 results
+        if results:
+            func_data = [
+                {"address": addr, "instruction": instr}
+                for addr, instr in results
+            ]
+            result_path = write_function_results(
+                functions=func_data,
+                search_type="v3",
+                extra_metadata={"binary": self.binary_path}
+            )
+            print(f"[+] v3 function search results saved to: {result_path}")
 
         return results
 
