@@ -1,7 +1,13 @@
 """
 UI Module - Terminal Interface with Curses + ANSI Fallback
 Live logging display + Progress bar + Responsive layout
-Supports modes A-F
+Supports modes A-F + Target selection within TUI
+
+Layout:
+  - Normal mode: header + log area + progress + footer
+  - Selection mode: header + target list (outside log table) + footer
+  - Only progress/execution logs go inside the log table
+  - Menus and selections are always outside the log table
 """
 
 import sys
@@ -11,7 +17,7 @@ import curses
 import select
 import threading
 from collections import deque
-from typing import Optional
+from typing import Optional, List, Tuple
 
 try:
     import termios
@@ -26,6 +32,7 @@ class CursesUI:
 
     Layout (responsive to terminal size):
 
+    NORMAL MODE:
     + ShadowProtocol v3.0 | Mode: MODE A | Running... ==========+
     ---------------------------------------------------------------
      > LIVE OUTPUT
@@ -35,7 +42,20 @@ class CursesUI:
      ...
     ---------------------------------------------------------------
      [████████████████████░░░░░░░░░░░░░░░░░░░░░] 65% MODE A 10/14
-     [q] Quit | Modes: [a] [b] [c] [d] [e] [f]
+     [q] Quit | [1] Select target | Modes: [a] [b] [c] [d] [e] [f]
+
+    SELECTION MODE:
+    + ShadowProtocol v3.0 | SELECT TARGET =======================+
+    ---------------------------------------------------------------
+     > SELECT TARGET (.so files found)
+    ---------------------------------------------------------------
+     [1] path/to/libfoo.so
+         Arch: ARM64 | RW: Y | Size: 4.29MB
+     [2] path/to/libbar.so
+         Arch: ARM64 | RW: N | Size: 1.02MB
+     ...
+    ---------------------------------------------------------------
+     [1-N] Select | [q] Cancel
     """
 
     MAX_LOG_LINES = 50
@@ -63,6 +83,8 @@ class CursesUI:
             curses.init_pair(3, curses.COLOR_RED, curses.COLOR_BLACK)     # Error
             curses.init_pair(4, curses.COLOR_YELLOW, curses.COLOR_BLACK)  # Warning
             curses.init_pair(5, curses.COLOR_WHITE, curses.COLOR_BLUE)    # Progress
+            curses.init_pair(6, curses.COLOR_WHITE, curses.COLOR_BLACK)   # Target list
+            curses.init_pair(7, curses.COLOR_CYAN, curses.COLOR_BLACK)    # Target highlight
 
         # State
         self.height, self.width = stdscr.getmaxyx()
@@ -72,6 +94,12 @@ class CursesUI:
         self.mode_label = "IDLE"
         self.status_label = "Ready"
         self.running = True
+
+        # Selection mode state
+        self.selection_mode = False
+        self.selection_items: List[Tuple[int, str, str, str, float]] = []
+        self.selection_prompt = ""
+        self.selection_scroll_offset = 0
 
     # -- State update methods (thread-safe) ----------------------------
 
@@ -122,11 +150,43 @@ class CursesUI:
         with self.lock:
             self.status_label = status[:30]
 
+    def enter_selection_mode(self, items: List[Tuple[int, str, str, str, float]],
+                             prompt: str = "Select target"):
+        """Enter target selection mode.
+
+        The UI switches from log display to a clean target list,
+        keeping the header and footer but replacing the log area.
+
+        Args:
+            items: List of (index, path, arch, rw, size_mb) tuples
+            prompt: Prompt text to display
+        """
+        with self.lock:
+            self.selection_mode = True
+            self.selection_items = items
+            self.selection_prompt = prompt
+            self.selection_scroll_offset = 0
+
+    def exit_selection_mode(self):
+        """Exit selection mode and return to normal log display."""
+        with self.lock:
+            self.selection_mode = False
+            self.selection_items = []
+            self.selection_prompt = ""
+            self.selection_scroll_offset = 0
+
+    def is_in_selection_mode(self) -> bool:
+        """Check if UI is in selection mode."""
+        return self.selection_mode
+
     # -- Drawing methods -----------------------------------------------
 
     def _draw_header(self):
         """Draw dynamic header with mode + status."""
-        content = f" ShadowProtocol v3.0 | Mode: {self.mode_label} | {self.status_label} "
+        if self.selection_mode:
+            content = f" ShadowProtocol v3.0 | SELECT TARGET "
+        else:
+            content = f" ShadowProtocol v3.0 | Mode: {self.mode_label} | {self.status_label} "
         pad_len = max(0, self.width - len(content) - 2)
         line = f"\u2554{content}{'\u2550' * pad_len}\u2557"
         try:
@@ -136,7 +196,11 @@ class CursesUI:
             pass
 
     def _draw_log_section(self):
-        """Draw LIVE OUTPUT section with auto-scrolling logs."""
+        """Draw LIVE OUTPUT section with auto-scrolling logs.
+
+        Only called in normal (non-selection) mode.
+        Only progress/execution logs go in this area.
+        """
         try:
             # Guard: need at least 5 rows for log section to make sense
             if self.height < 5:
@@ -188,8 +252,97 @@ class CursesUI:
         except curses.error:
             pass
 
+    def _draw_selection_section(self):
+        """Draw target selection list (OUTSIDE the log table).
+
+        This is the clean selection interface that replaces the log area
+        when the user presses [1] to select a target. The target list
+        is rendered in its own dedicated area, completely separate from
+        the log output and progress bar.
+        """
+        try:
+            if self.height < 5:
+                return
+
+            # Separator below header
+            self.stdscr.addstr(1, 0, "\u2500" * self.width,
+                               curses.color_pair(4) | curses.A_DIM)
+
+            # Selection title
+            title = f" \u25b6 {self.selection_prompt} ({len(self.selection_items)} found)"
+            self.stdscr.addstr(2, 0, title,
+                               curses.color_pair(2) | curses.A_BOLD)
+
+            # Separator below title
+            self.stdscr.addstr(3, 0, "\u2500" * self.width,
+                               curses.color_pair(4) | curses.A_DIM)
+
+            # Target list area: from line 4 to (height - 5)
+            list_start_y = 4
+            available_lines = max(1, self.height - 5 - list_start_y)
+
+            # Each item takes 2 lines (path + details)
+            items_per_page = max(1, available_lines // 2)
+
+            # Auto-scroll to keep items visible
+            if self.selection_scroll_offset >= len(self.selection_items):
+                self.selection_scroll_offset = max(0, len(self.selection_items) - items_per_page)
+
+            visible_items = self.selection_items[self.selection_scroll_offset:]
+
+            y = list_start_y
+            for idx, path, arch, rw, size_mb in visible_items:
+                if y >= self.height - 5:
+                    break
+
+                # Item number and path (truncated to fit)
+                max_path_len = self.width - 8
+                display_path = path
+                if len(display_path) > max_path_len:
+                    # Show the end of the path (most relevant part)
+                    display_path = "..." + path[-(max_path_len - 3):]
+
+                item_line = f" [{idx}] {display_path}"
+                try:
+                    self.stdscr.addstr(y, 1, item_line[:self.width - 2],
+                                       curses.color_pair(7) | curses.A_BOLD)
+                except curses.error:
+                    pass
+
+                y += 1
+                if y >= self.height - 5:
+                    break
+
+                # Details line
+                detail_line = f"     Arch: {arch} | RW: {rw} | Size: {size_mb:.2f}MB"
+                try:
+                    self.stdscr.addstr(y, 1, detail_line[:self.width - 2],
+                                       curses.color_pair(6) | curses.A_DIM)
+                except curses.error:
+                    pass
+
+                y += 1
+
+            # Show scroll indicator if there are more items
+            if len(self.selection_items) > items_per_page:
+                showing = f" (showing {self.selection_scroll_offset + 1}-{min(self.selection_scroll_offset + items_per_page, len(self.selection_items))} of {len(self.selection_items)}) "
+                try:
+                    self.stdscr.addstr(self.height - 5, 0, showing[:self.width],
+                                       curses.color_pair(4) | curses.A_DIM)
+                except curses.error:
+                    pass
+
+        except curses.error:
+            pass
+
     def _draw_progress(self):
-        """Draw progress bar with step counter."""
+        """Draw progress bar with step counter.
+
+        Only shown in normal mode (not during target selection).
+        """
+        if self.selection_mode:
+            return
+
         try:
             if self.height < 6:
                 return
@@ -215,10 +368,22 @@ class CursesUI:
             pass
 
     def _draw_footer(self):
-        """Draw footer with controls hint."""
+        """Draw footer with controls hint.
+
+        Different hints for normal mode vs selection mode.
+        """
         try:
             footer_y = self.height - 1
-            footer = " [q] Quit | Modes: [a] [b] [c] [d] [e] [f]"
+
+            if self.selection_mode:
+                max_idx = len(self.selection_items) if self.selection_items else 0
+                if max_idx > 0:
+                    footer = f" [1-{max_idx}] Select | [q] Cancel | [\u2191\u2193] Scroll"
+                else:
+                    footer = " [q] Cancel (no targets found)"
+            else:
+                footer = " [q] Quit | [1] Select target | Modes: [a] [b] [c] [d] [e] [f]"
+
             self.stdscr.addstr(footer_y, 0, footer[:self.width],
                                curses.color_pair(4) | curses.A_DIM)
         except curses.error:
@@ -230,6 +395,7 @@ class CursesUI:
         """Full display refresh (thread-safe).
 
         Called in the main loop to redraw the entire screen.
+        In selection mode, draws the target list instead of logs.
         All drawing is protected by the lock to prevent
         concurrent modifications from mode threads.
         """
@@ -237,8 +403,11 @@ class CursesUI:
             try:
                 self.stdscr.erase()
                 self._draw_header()
-                self._draw_log_section()
-                self._draw_progress()
+                if self.selection_mode:
+                    self._draw_selection_section()
+                else:
+                    self._draw_log_section()
+                    self._draw_progress()
                 self._draw_footer()
                 self.stdscr.refresh()
             except curses.error:
@@ -280,6 +449,9 @@ class ANSIUI:
     Provides the same visual layout as CursesUI but using
     ANSI escape sequences for terminal control.
     Supports non-blocking input via select() on stdin.
+
+    Selection mode renders the target list OUTSIDE the log table,
+    keeping the UI clean and usable.
     """
 
     MAX_LOG_LINES = 30
@@ -293,6 +465,12 @@ class ANSIUI:
         self.mode_label = "IDLE"
         self.status_label = "Ready"
         self.running = True
+
+        # Selection mode state
+        self.selection_mode = False
+        self.selection_items: List[Tuple[int, str, str, str, float]] = []
+        self.selection_prompt = ""
+        self.selection_scroll_offset = 0
 
         # Set terminal to cbreak mode for non-blocking input
         self._old_settings = None
@@ -332,54 +510,106 @@ class ANSIUI:
         with self.lock:
             self.status_label = status[:30]
 
+    def enter_selection_mode(self, items: List[Tuple[int, str, str, str, float]],
+                             prompt: str = "Select target"):
+        """Enter target selection mode."""
+        with self.lock:
+            self.selection_mode = True
+            self.selection_items = items
+            self.selection_prompt = prompt
+            self.selection_scroll_offset = 0
+
+    def exit_selection_mode(self):
+        """Exit selection mode and return to normal log display."""
+        with self.lock:
+            self.selection_mode = False
+            self.selection_items = []
+            self.selection_prompt = ""
+            self.selection_scroll_offset = 0
+
+    def is_in_selection_mode(self) -> bool:
+        """Check if UI is in selection mode."""
+        return self.selection_mode
+
     def refresh(self):
-        """Full display refresh using ANSI escape codes."""
+        """Full display refresh using ANSI escape codes.
+
+        In selection mode, renders the target list instead of logs,
+        keeping menus OUTSIDE the log table.
+        """
         with self.lock:
             # Clear screen and move to top
             print("\033[2J\033[H", end="", flush=True)
 
             # Header
-            content = f" ShadowProtocol v3.0 | Mode: {self.mode_label} | {self.status_label} "
+            if self.selection_mode:
+                content = f" ShadowProtocol v3.0 | SELECT TARGET "
+            else:
+                content = f" ShadowProtocol v3.0 | Mode: {self.mode_label} | {self.status_label} "
             pad = max(0, 60 - len(content))
             print(f"\033[96m\u2554{content}{'\u2550' * pad}\u2557\033[0m")
 
             # Separator
             print("\033[33m" + "\u2500" * 80 + "\033[0m")
 
-            # LIVE OUTPUT label
-            print("\033[92m \u25b6 LIVE OUTPUT\033[0m")
+            if self.selection_mode:
+                # Selection title
+                title = f"\033[92m \u25b6 {self.selection_prompt} ({len(self.selection_items)} found)\033[0m"
+                print(title)
+                print("\033[33m" + "\u2500" * 80 + "\033[0m")
 
-            # Separator
-            print("\033[33m" + "\u2500" * 80 + "\033[0m")
+                # Target list
+                for idx, path, arch, rw, size_mb in self.selection_items:
+                    # Truncate path if too long
+                    max_path_len = 70
+                    display_path = path
+                    if len(display_path) > max_path_len:
+                        display_path = "..." + path[-(max_path_len - 3):]
 
-            # Logs
-            for line in self.log_buffer:
-                if "[+]" in line:
-                    print(f"\033[92m {line}\033[0m")
-                elif "[!]" in line:
-                    print(f"\033[91m {line}\033[0m")
-                elif "[W]" in line:
-                    print(f"\033[93m {line}\033[0m")
-                elif "[D]" in line:
-                    print(f"\033[2m\033[93m {line}\033[0m")
-                elif "[*]" in line:
-                    print(f"\033[96m {line}\033[0m")
-                else:
-                    print(f"\033[97m {line}\033[0m")
+                    print(f"\033[96m [{idx}] {display_path}\033[0m")
+                    print(f"\033[90m     Arch: {arch} | RW: {rw} | Size: {size_mb:.2f}MB\033[0m")
+            else:
+                # LIVE OUTPUT label
+                print("\033[92m \u25b6 LIVE OUTPUT\033[0m")
 
-            # Separator
-            print("\033[33m" + "\u2500" * 80 + "\033[0m")
+                # Separator
+                print("\033[33m" + "\u2500" * 80 + "\033[0m")
 
-            # Progress bar
-            bar_width = 40
-            filled = int(bar_width * self.progress_pct / 100)
-            bar = f"[{'\u2588' * filled}{'\u2591' * (bar_width - filled)}] {self.progress_pct:3d}%"
-            if self.progress_text:
-                bar += f" {self.progress_text}"
-            print(f"\033[97m {bar}\033[0m")
+                # Logs
+                for line in self.log_buffer:
+                    if "[+]" in line:
+                        print(f"\033[92m {line}\033[0m")
+                    elif "[!]" in line:
+                        print(f"\033[91m {line}\033[0m")
+                    elif "[W]" in line:
+                        print(f"\033[93m {line}\033[0m")
+                    elif "[D]" in line:
+                        print(f"\033[2m\033[93m {line}\033[0m")
+                    elif "[*]" in line:
+                        print(f"\033[96m {line}\033[0m")
+                    else:
+                        print(f"\033[97m {line}\033[0m")
+
+                # Separator
+                print("\033[33m" + "\u2500" * 80 + "\033[0m")
+
+                # Progress bar
+                bar_width = 40
+                filled = int(bar_width * self.progress_pct / 100)
+                bar = f"[{'\u2588' * filled}{'\u2591' * (bar_width - filled)}] {self.progress_pct:3d}%"
+                if self.progress_text:
+                    bar += f" {self.progress_text}"
+                print(f"\033[97m {bar}\033[0m")
 
             # Footer
-            print("\033[93m [q] Quit | Modes: [a] [b] [c] [d] [e] [f]\033[0m")
+            if self.selection_mode:
+                max_idx = len(self.selection_items) if self.selection_items else 0
+                if max_idx > 0:
+                    print(f"\033[93m [1-{max_idx}] Select | [q] Cancel\033[0m")
+                else:
+                    print(f"\033[93m [q] Cancel (no targets found)\033[0m")
+            else:
+                print("\033[93m [q] Quit | [1] Select target | Modes: [a] [b] [c] [d] [e] [f]\033[0m")
 
     def get_input(self) -> Optional[str]:
         """Non-blocking input using select() on stdin.

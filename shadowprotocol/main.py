@@ -6,6 +6,9 @@ Fused version: TUI UI (v2) + Real Radare2 Functionality (v1)
 
 Interactive terminal UI with live logging, progress bar, and clean shutdown
 with real binary patching via Radare2 integration.
+
+Target selection uses the TUI system (not print/input) so that
+menus and selections appear OUTSIDE the log table.
 """
 
 import sys
@@ -13,7 +16,7 @@ import time
 import signal
 import curses
 import threading
-from typing import Optional
+from typing import Optional, List
 
 from .logger import LoggerHandler
 from .modes import get_mode, BaseMode
@@ -31,9 +34,9 @@ class ShadowProtocolApp:
 
     Manages the application lifecycle:
     - UI initialization (curses with ANSI fallback)
-    - User input handling (a/b/c/d/e/f for modes, q to quit)
+    - User input handling (a/b/c/d/e/f for modes, 1 for target, q to quit)
     - Mode execution in separate threads
-    - Target binary selection
+    - Target binary selection via TUI (not print/input)
     - Graceful shutdown with cleanup
     - Terminal resize adaptation
     """
@@ -52,6 +55,10 @@ class ShadowProtocolApp:
         self.target_selector = TargetSelector()
         self.current_target: Optional[str] = None
         self.current_offset: Optional[str] = None
+
+        # Selection state for TUI-based selection
+        self._selection_targets: Optional[List[str]] = None
+        self._selection_digit_buffer = ""
 
         # Signal handlers for external interrupts
         signal.signal(signal.SIGINT, self._handle_signal)
@@ -127,7 +134,15 @@ class ShadowProtocolApp:
             self.ui.set_status("Error")
 
     def select_target_interactive(self):
-        """Interactive target selection"""
+        """Start TUI-based target selection.
+
+        Instead of using print/input (which breaks the TUI),
+        this method:
+        1. Searches for .so files
+        2. Formats the target list for TUI display
+        3. Enters the UI's selection mode
+        4. The main loop handles input for selection
+        """
         self.logger.info("Searching for .so files...")
         targets = self.target_selector.find_targets()
 
@@ -136,14 +151,73 @@ class ShadowProtocolApp:
             return
 
         self.logger.info(f"{len(targets)} target(s) detected")
-        selected = self.target_selector.select_interactive(targets)
+        self._selection_targets = targets
 
-        if selected:
-            self.current_target = selected
-            size = self.target_selector.validator.get_arch(selected) or "Unknown"
-            self.logger.success(f"Target selected: {selected} ({size})")
-        else:
-            self.logger.warning("Selection cancelled")
+        # Format targets for TUI display
+        formatted = self.target_selector.format_target_list(targets)
+
+        # Enter TUI selection mode - the target list is rendered
+        # OUTSIDE the log table, in its own clean area
+        self.ui.enter_selection_mode(formatted, prompt="Select target (.so)")
+        self._selection_digit_buffer = ""
+
+    def _handle_selection_input(self, ch: str) -> bool:
+        """Handle input during TUI target selection mode.
+
+        This processes number input (1-N) to select a target,
+        and 'q' to cancel selection. The selection happens entirely
+        within the TUI, not via print/input.
+
+        Args:
+            ch: The key pressed (lowercase)
+
+        Returns:
+            True to continue, False to quit application
+        """
+        if not self._selection_targets:
+            self.ui.exit_selection_mode()
+            return True
+
+        max_idx = len(self._selection_targets)
+
+        if ch == 'q':
+            # Cancel selection
+            self.ui.exit_selection_mode()
+            self.logger.info("Target selection cancelled")
+            return True
+
+        # Handle digit input for target selection
+        if ch.isdigit():
+            self._selection_digit_buffer += ch
+
+            # Check if the buffer forms a valid index
+            try:
+                idx = int(self._selection_digit_buffer)
+                if 1 <= idx <= max_idx:
+                    # Valid selection - commit it
+                    selected = self.target_selector.get_target_by_index(
+                        self._selection_targets, idx
+                    )
+                    self.ui.exit_selection_mode()
+                    self._selection_targets = None
+                    self._selection_digit_buffer = ""
+
+                    if selected:
+                        self.current_target = selected
+                        arch = self.target_selector.validator.get_arch(selected) or "Unknown"
+                        self.logger.success(f"Target selected: {selected} ({arch})")
+                    return True
+                elif idx * 10 > max_idx:
+                    # The number is already too large, reset buffer
+                    self._selection_digit_buffer = ""
+                    self.logger.warning(f"Invalid selection. Use [1-{max_idx}]")
+                    return True
+                # Otherwise, wait for more digits (e.g., typing "1" then "5" for 15)
+            except ValueError:
+                self._selection_digit_buffer = ""
+
+        # Non-digit, non-q key during selection - ignore
+        return True
 
     def handle_input(self, ch: str) -> bool:
         """Handle keyboard input from the main loop.
@@ -154,6 +228,10 @@ class ShadowProtocolApp:
         Returns:
             False if the application should quit, True otherwise.
         """
+        # If in selection mode, route input to selection handler
+        if self.ui.is_in_selection_mode():
+            return self._handle_selection_input(ch)
+
         if ch == 'q' or ch == '\x03':  # 'q' or Ctrl+C
             self.logger.info("Shutdown requested by user...")
             return False
@@ -216,7 +294,7 @@ class ShadowProtocolApp:
         This is the core event loop that:
         1. Refreshes the display
         2. Detects terminal resize
-        3. Processes keyboard input
+        3. Processes keyboard input (handles selection mode and normal mode)
         4. Monitors mode thread completion
         5. Sleeps briefly to reduce CPU usage
         """

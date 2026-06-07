@@ -1,10 +1,13 @@
 """
 Target Selector - Detect & select .so files
+
+Provides target detection and formatting for the TUI.
+Selection is handled by the UI layer, not by print/input.
 """
 
 import os
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 
 class TargetValidator:
@@ -39,7 +42,12 @@ class TargetValidator:
 
 
 class TargetSelector:
-    """Interactive target selection"""
+    """Target selection with TUI-compatible formatting.
+
+    The select_interactive() method no longer uses print()/input() directly.
+    Instead, it returns formatted data that the UI layer renders and handles
+    input for, keeping the TUI in control of the screen.
+    """
 
     def __init__(self, start_path: str = "."):
         """Initialize selector"""
@@ -61,9 +69,38 @@ class TargetSelector:
 
         return sorted(targets)
 
-    def select_interactive(self, targets: List[str]) -> Optional[str]:
-        """Interactive selection menu"""
+    def format_target_list(self, targets: List[str]) -> List[Tuple[int, str, str, str, float]]:
+        """Format target list for TUI display.
 
+        Args:
+            targets: List of target file paths.
+
+        Returns:
+            List of (index, path, arch, rw, size_mb) tuples for display.
+        """
+        formatted = []
+        for i, target in enumerate(targets, 1):
+            arch = self.validator.get_arch(target) or "Unknown"
+            writable = "Y" if self.validator.is_writable(target) else "N"
+            try:
+                size = os.path.getsize(target) / 1024 / 1024
+            except OSError:
+                size = 0.0
+            formatted.append((i, target, arch, writable, size))
+        return formatted
+
+    def select_interactive(self, targets: List[str]) -> Optional[str]:
+        """Interactive selection menu (fallback for non-TUI usage).
+
+        WARNING: This uses print/input directly and should NOT be called
+        when the TUI is active. Use the TUI selection mode instead.
+
+        Args:
+            targets: List of target file paths.
+
+        Returns:
+            Selected target path, or None if cancelled.
+        """
         if not targets:
             return None
 
@@ -84,8 +121,22 @@ class TargetSelector:
 
         return None
 
+    def get_target_by_index(self, targets: List[str], index: int) -> Optional[str]:
+        """Get target by 1-based index.
+
+        Args:
+            targets: List of target file paths.
+            index: 1-based index.
+
+        Returns:
+            Target path if valid index, None otherwise.
+        """
+        if 1 <= index <= len(targets):
+            return targets[index - 1]
+        return None
+
     def select_path(self, path: str) -> Optional[str]:
-        """Select specific file or directory"""
+        """Select specific file or directory (non-TUI fallback)"""
         path = Path(path)
 
         if path.is_file():
