@@ -21,6 +21,7 @@ from .core import (
     replace_lib_in_apk,
     find_related_functions,
 )
+from ..results_writer import write_patch_results, write_generic_results
 
 # Configuration defaults
 KEYWORDS_TRUE = ["keyword"]
@@ -98,7 +99,7 @@ class FlutterPatcher:
             return apk_path
 
         base = os.path.splitext(os.path.basename(apk_path))[0]
-        run_blutter(base, apk_dir)
+        blutter_out_dir = run_blutter(base, apk_dir)
 
         if self.enable_pp_patch:
             _, pp_patches = process_pp_patch(
@@ -111,7 +112,7 @@ class FlutterPatcher:
             total_successful_patches += pp_patches
 
         if self.enable_asm_patch:
-            asm_patches = process_asm_patch(apk_path, apk_dir)
+            asm_patches = process_asm_patch(apk_path, apk_dir, out_dir=blutter_out_dir)
             total_successful_patches += asm_patches
 
         libapp_path = os.path.join(apk_dir, "libapp.so")
@@ -654,6 +655,13 @@ def patch_false_addresses(libso_path, false_addresses):
     print(f"ASM PATCH SUMMARY: {successful}/{len(false_addresses)} successful")
     print("="*60)
 
+    # Persist ASM patch results
+    result_file = write_patch_results(results, "D_ASM",
+                                      extra_metadata={"libso_path": libso_path,
+                                                      "successful": successful,
+                                                      "total": len(false_addresses)})
+    print(f"ASM patch results saved: {result_file}")
+
     return results
 
 
@@ -770,15 +778,25 @@ def process_pp_patch(apk_path, keywords_true=None, keywords_false=None,
     successful_patches = sum(1 for info in all_patch_results.values() if info[2])
     print(f"\nPP PATCHING: {successful_patches} successful patches")
 
+    # Persist PP patch results
+    patch_data = {k: {"func_addr": v[0], "offset": v[1], "patched": v[2],
+                       "patched_at": v[3], "register": v[4], "type": v[5]}
+                  for k, v in all_patch_results.items()}
+    result_file = write_patch_results(patch_data, "D_PP",
+                                      extra_metadata={"apk_path": apk_path,
+                                                      "successful_patches": successful_patches})
+    print(f"PP patch results saved: {result_file}")
+
     return apk_path, successful_patches
 
 
-def process_asm_patch(apk_path, apk_dir):
+def process_asm_patch(apk_path, apk_dir, out_dir=None):
     """Process asm folder based patching.
 
     Args:
         apk_path: Path to the APK file.
         apk_dir: Working directory for the APK.
+        out_dir: Optional blutter output directory. If None, runs blutter.
 
     Returns:
         Number of successful patches.
@@ -788,8 +806,9 @@ def process_asm_patch(apk_path, apk_dir):
     print("="*60)
 
     try:
-        base = os.path.splitext(os.path.basename(apk_path))[0]
-        out_dir = run_blutter(base, apk_dir)
+        if not out_dir:
+            base = os.path.splitext(os.path.basename(apk_path))[0]
+            out_dir = run_blutter(base, apk_dir)
 
         if not out_dir:
             print("Blutter failed to create output directory")

@@ -3,6 +3,7 @@ Modes Module - Six processing modes with OOP pattern + Real Radare2 Integration
 Fuses v2 architecture with v1 functionality + Flutter/APK/Manifest/FindFunctions modes
 """
 
+import os
 import re
 import time
 import threading
@@ -14,6 +15,13 @@ try:
     HAS_R2PIPE = True
 except ImportError:
     HAS_R2PIPE = False
+
+from .results_writer import (
+    write_offset_results,
+    write_patch_results,
+    write_function_results,
+    write_generic_results,
+)
 
 
 class Radare2Handler:
@@ -166,7 +174,7 @@ class BaseMode(ABC):
 class ModeA(BaseMode):
     """MODE A - Manual Assisted (Radare2 integration)
 
-    Simulates manual offset-based binary patching with
+    Manual offset-based binary patching with
     step-by-step verification and integrity checks.
     """
 
@@ -192,6 +200,10 @@ class ModeA(BaseMode):
         """Validate offset format & existence"""
         if not self.offset or not re.match(r'^0x[0-9a-fA-F]+$', self.offset):
             self.log("[!] Invalid offset (format: 0x...)")
+            return False
+
+        if not self.r2:
+            self.log("[!] No binary loaded for Radare2")
             return False
 
         self.log(f"[*] Validating offset: {self.offset}")
@@ -223,6 +235,10 @@ class ModeA(BaseMode):
 
     def patch(self) -> bool:
         """Apply patch via Radare2"""
+        if not self.r2:
+            self.log("[!] No binary loaded for Radare2")
+            return False
+
         if not self.r2.open(write=True):
             self.log("[!] Error opening in write mode")
             return False
@@ -250,41 +266,68 @@ class ModeA(BaseMode):
             return False
 
     def execute(self) -> bool:
-        """Execute MODE A"""
+        """Execute MODE A - Validate offset then patch"""
         self.log("[*] MODE A: Manual analysis started...")
         self._stop_event.clear()
 
-        steps = [
-            ("Initialising system", 0.2),
-            ("Loading binary", 0.3),
-            ("Analysing ELF header", 0.25),
-            ("Extracting symbols", 0.4),
-            ("Verifying offset", 0.3),
-            ("Validating pattern", 0.2),
-            ("Preparing pptool", 0.25),
-            ("Injecting patch", 0.35),
-            ("Verifying integrity", 0.3),
-            ("Memory synchronisation", 0.25),
-            ("Functional test", 0.4),
-            ("Final report", 0.2),
-            ("Cleaning resources", 0.15),
-            ("Analysis complete", 0.1),
-        ]
+        # Guard: require binary and offset
+        if not self.binary:
+            self.log("[!] MODE A: No target binary selected (use option [1])")
+            return False
+        if not self.offset:
+            self.log("[!] MODE A: No offset provided (use option [2])")
+            return False
 
-        success = self._run_steps("A", steps)
+        # Phase 1: Validate offset
+        self.log("[A] Validating offset...")
+        self.progress(1, 2, "MODE A")
 
-        if success:
+        if self.is_stopping():
+            self.log("[W] MODE A: Stopped before validation")
+            return False
+
+        valid = self.validate_offset()
+
+        # Persist offset validation result
+        offset_data = [{"offset": self.offset, "binary": self.binary,
+                        "validated": valid, "pattern": "0x30"}]
+        result_file = write_offset_results(offset_data, self.get_label(),
+                                           extra_metadata={"binary": self.binary})
+        self.log(f"[A] Offset results saved: {result_file}")
+
+        if not valid:
+            self.log("[!] MODE A: Offset validation failed - aborting")
+            return False
+
+        # Phase 2: Apply patch
+        self.log("[A] Applying patch...")
+        self.progress(2, 2, "MODE A")
+
+        if self.is_stopping():
+            self.log("[W] MODE A: Stopped before patching")
+            return False
+
+        patched = self.patch()
+
+        # Persist patch result
+        patch_data = {self.offset: {"patched": patched, "binary": self.binary,
+                     "instruction": "wa add x0, x22, 0x20"}}
+        result_file = write_patch_results(patch_data, self.get_label(),
+                                          extra_metadata={"binary": self.binary})
+        self.log(f"[A] Patch results saved: {result_file}")
+
+        if patched:
             self.log("[+] MODE A: Analysis completed successfully")
         else:
-            self.log("[W] MODE A: Clean stop executed")
+            self.log("[W] MODE A: Patch could not be applied")
 
-        return success
+        return patched
 
 
 class ModeB(BaseMode):
     """MODE B - Auto-Patching (full binary scan)
 
-    Simulates full binary scan with automatic pattern detection
+    Full binary scan with automatic pattern detection
     and batch patching across multiple targets.
     """
 
@@ -307,6 +350,10 @@ class ModeB(BaseMode):
 
     def scan(self) -> List[Tuple[str, str]]:
         """Scan entire binary for pattern"""
+        if not self.r2:
+            self.log("[!] No binary loaded for Radare2")
+            return []
+
         if not self.r2.open(write=False):
             self.log("[!] Error opening Radare2")
             return []
@@ -318,29 +365,53 @@ class ModeB(BaseMode):
 
             pattern = re.compile(r"add\s+x\d+,\s*x\d+,\s*0x30", re.IGNORECASE)
 
-            success, disasm, error = self.r2.execute("pd")
-            if not success:
-                self.log(f"[!] r2 disasm error: {error}")
+            # Use afl to get function list, then search each function
+            success, func_list, error = self.r2.execute("afl")
+            if not success or not func_list.strip():
+                self.log(f"[!] r2 function list error: {error}")
                 self.r2.close()
                 return []
 
-            for line in disasm.split('\n'):
-                if pattern.search(line):
-                    addr_match = re.search(r'(0x[0-9a-fA-F]+)', line)
-                    if addr_match:
-                        self.targets.append((addr_match.group(1), line.strip()))
+            func_addrs = []
+            for line in func_list.split('\n'):
+                parts = line.split()
+                if len(parts) >= 3:
+                    addr = parts[0]
+                    if addr.startswith("0x"):
+                        func_addrs.append(addr)
+
+            for func_addr in func_addrs:
+                if self.is_stopping():
+                    break
+                self.r2.execute(f"s {func_addr}")
+                success, disasm, _ = self.r2.execute("pdr")
+                if not success or not disasm:
+                    continue
+                for line in disasm.split('\n'):
+                    if pattern.search(line):
+                        addr_match = re.search(r'(0x[0-9a-fA-F]+)', line)
+                        if addr_match:
+                            self.targets.append((addr_match.group(1), line.strip()))
 
             self.r2.close()
             self.log(f"[+] {len(self.targets)} targets found")
             return self.targets
         except Exception as e:
             self.log(f"[!] Scan error: {e}")
+            try:
+                self.r2.close()
+            except Exception:
+                pass
             return []
 
     def patch_all(self) -> int:
         """Patch all targets"""
         if not self.targets:
             self.log("[!] No targets to patch")
+            return 0
+
+        if not self.r2:
+            self.log("[!] No binary loaded for Radare2")
             return 0
 
         if not self.r2.open(write=True):
@@ -364,60 +435,80 @@ class ModeB(BaseMode):
                     if i % 10 == 0:
                         self.log(f"[*] {patched}/{len(self.targets)} patched")
 
+                self.progress(i, len(self.targets), "MODE B")
+
             self.r2.close()
             self.log(f"[+] {patched}/{len(self.targets)} patches applied")
             return patched
         except Exception as e:
             self.log(f"[!] Patch error: {e}")
+            try:
+                self.r2.close()
+            except Exception:
+                pass
             return 0
 
     def execute(self) -> bool:
-        """Execute MODE B"""
+        """Execute MODE B - Scan then auto-patch"""
         self.log("[*] MODE B: Auto-scan started...")
         self._stop_event.clear()
 
-        steps = [
-            ("Initialising scanner", 0.2),
-            ("Loading full binary", 0.4),
-            ("Analysing headers", 0.3),
-            ("Scanning .text section", 0.35),
-            ("Detecting pattern 1", 0.25),
-            ("Detecting pattern 2", 0.25),
-            ("Detecting pattern 3", 0.3),
-            ("Detecting pattern 4", 0.25),
-            ("Detecting pattern 5", 0.2),
-            ("Sorting results", 0.15),
-            ("Checking duplicates", 0.2),
-            ("Preparing patches", 0.3),
-            ("Patch batch 1", 0.4),
-            ("Patch batch 2", 0.4),
-            ("Patch batch 3", 0.4),
-            ("Verifying batch 1", 0.3),
-            ("Verifying batch 2", 0.3),
-            ("Verifying batch 3", 0.3),
-            ("Rewriting sections", 0.35),
-            ("Synchronisation", 0.25),
-            ("Integration test", 0.4),
-            ("Final validation", 0.3),
-            ("Generating report", 0.2),
-            ("Cleaning resources", 0.15),
-            ("Scan complete", 0.1),
-        ]
+        if not self.binary:
+            self.log("[!] MODE B: No target binary selected (use option [1])")
+            return False
 
-        success = self._run_steps("B", steps)
+        # Phase 1: Scan for targets
+        self.log("[B] Scanning binary for patterns...")
+        self.progress(1, 2, "MODE B")
 
-        if success:
-            self.log("[+] MODE B: Scan and patches completed")
+        if self.is_stopping():
+            self.log("[W] MODE B: Stopped before scan")
+            return False
+
+        targets = self.scan()
+
+        # Persist scan results
+        scan_data = [{"address": addr, "instruction": instr} for addr, instr in targets]
+        result_file = write_offset_results(scan_data, self.get_label(),
+                                           extra_metadata={"binary": self.binary,
+                                                           "total_targets": len(targets)})
+        self.log(f"[B] Scan results saved: {result_file}")
+
+        if not targets:
+            self.log("[W] MODE B: No targets found - nothing to patch")
+            return True  # Not an error, just no targets
+
+        # Phase 2: Patch all targets
+        self.log(f"[B] Patching {len(targets)} targets...")
+        self.progress(2, 2, "MODE B")
+
+        if self.is_stopping():
+            self.log("[W] MODE B: Stopped before patching")
+            return False
+
+        patched_count = self.patch_all()
+
+        # Persist patch results
+        patch_data = {addr: {"patched": True, "instruction": instr}
+                      for addr, instr in self.targets}
+        result_file = write_patch_results(patch_data, self.get_label(),
+                                          extra_metadata={"binary": self.binary,
+                                                          "patched_count": patched_count,
+                                                          "total_targets": len(targets)})
+        self.log(f"[B] Patch results saved: {result_file}")
+
+        if patched_count > 0:
+            self.log(f"[+] MODE B: {patched_count} patches applied successfully")
+            return True
         else:
-            self.log("[W] MODE B: Clean stop with recovery")
-
-        return success
+            self.log("[W] MODE B: No patches could be applied")
+            return False
 
 
 class ModeC(BaseMode):
     """MODE C - Raw Radare2 (direct manipulation)
 
-    Simulates raw Radare2 binary manipulation with
+    Raw Radare2 binary manipulation with
     direct memory writes and disassembly verification.
     Note: interactive() uses r2pipe for commands instead of input().
     """
@@ -447,13 +538,17 @@ class ModeC(BaseMode):
         Returns:
             List of output strings.
         """
+        if not self.r2:
+            self.log("[!] No binary loaded for Radare2")
+            return []
+
         if not self.r2.open(write=True):
             self.log("[!] Error opening Radare2")
             return []
 
         results = []
         try:
-            for cmd in commands:
+            for i, cmd in enumerate(commands):
                 if self.is_stopping():
                     break
                 success, output, error = self.r2.execute(cmd)
@@ -463,46 +558,57 @@ class ModeC(BaseMode):
                     self.log(f"    [!] r2 error: {error}")
                 elif output.strip():
                     self.log(f"    {output.strip()[:200]}")
+                self.progress(i + 1, len(commands), "MODE C")
         finally:
             self.r2.close()
 
         return results
 
     def execute(self) -> bool:
-        """Execute MODE C"""
+        """Execute MODE C - Run default r2 command sequence"""
         self.log("[*] MODE C: Raw Radare2 session started...")
         self._stop_event.clear()
 
-        steps = [
-            ("Initialising r2", 0.25),
-            ("Opening binary in write mode", 0.3),
-            ("Basic analysis (aaa)", 0.35),
-            ("Enumerating functions", 0.25),
-            ("Listing sections", 0.2),
-            ("Raw pattern search", 0.3),
-            ("Calculating addresses", 0.25),
-            ("Preparing instructions", 0.3),
-            ("Memory write 1", 0.25),
-            ("Verification 1", 0.2),
-            ("Memory write 2", 0.25),
-            ("Verification 2", 0.2),
-            ("Memory write 3", 0.25),
-            ("Verification 3", 0.2),
-            ("Flush cache", 0.2),
-            ("Disassembly verification", 0.3),
-            ("Instruction report", 0.2),
-            ("Closing session", 0.15),
-            ("Cleanup", 0.1),
+        if not self.binary:
+            self.log("[!] MODE C: No target binary selected (use option [1])")
+            return False
+
+        if not self.r2:
+            self.log("[!] MODE C: Radare2 not available")
+            return False
+
+        # Default command sequence for raw binary manipulation
+        default_commands = [
+            "aaa",
+            "afl",
+            "iS",
+            "/ add x0, x22, 0x30",
+            "/ add x0, x22, 0x20",
         ]
 
-        success = self._run_steps("C", steps)
+        if self.is_stopping():
+            self.log("[W] MODE C: Stopped before execution")
+            return False
 
-        if success:
+        results = self.run_r2_commands(default_commands)
+
+        # Persist r2 command results
+        result_data = "\n".join(
+            f"--- Command: {cmd} ---\n{output}"
+            for cmd, output in zip(default_commands, results)
+        )
+        result_file = write_generic_results(
+            result_data, "raw_r2_session",
+            extra_metadata={"binary": self.binary,
+                            "commands_executed": len(results)})
+        self.log(f"[C] Session results saved: {result_file}")
+
+        if results:
             self.log("[+] MODE C: Radare2 manipulation completed")
+            return True
         else:
-            self.log("[W] MODE C: Session closed cleanly")
-
-        return success
+            self.log("[W] MODE C: No results from Radare2")
+            return False
 
 
 class ModeD(BaseMode):
@@ -530,32 +636,49 @@ class ModeD(BaseMode):
         self.log("[*] MODE D: Flutter Patcher started...")
         self._stop_event.clear()
 
-        steps = [
-            ("Initialising Flutter Patcher", 0.3),
-            ("Checking APK/APKS files", 0.2),
-            ("Merging split APKs if needed", 0.4),
-            ("Extracting arm64-v8a from APK", 0.35),
-            ("Running blutter analysis", 0.5),
-            ("Searching pp.txt for addresses", 0.3),
-            ("Finding related functions via pptool", 0.4),
-            ("PP patching (0x20 <-> 0x30)", 0.35),
-            ("ASM folder search with regex", 0.4),
-            ("Extracting false addresses", 0.3),
-            ("Patching false addresses", 0.35),
-            ("Replacing libapp.so in APK", 0.25),
-            ("Verifying APK integrity", 0.2),
-            ("Cleaning workspace", 0.15),
-            ("Flutter patch complete", 0.1),
-        ]
+        if not self.binary:
+            self.log("[!] MODE D: No APK path provided (use option [1] with APK path)")
+            return False
 
-        success = self._run_steps("D", steps)
+        try:
+            from .flutter.patcher import FlutterPatcher
 
-        if success:
+            self.log("[D] Starting combined flutter patching...")
+            self.progress(1, 2, "MODE D")
+
+            if self.is_stopping():
+                self.log("[W] MODE D: Stopped before patching")
+                return False
+
+            patcher = FlutterPatcher(
+                enable_pp_patch=True,
+                enable_asm_patch=True,
+                enable_true_patch=False,
+                enable_false_patch=True,
+            )
+            result_path = patcher.process_combined(self.binary)
+
+            self.progress(2, 2, "MODE D")
+
+            # Persist flutter patch summary
+            result_file = write_generic_results(
+                f"Flutter patching completed\nAPK path: {result_path}",
+                "flutter_patcher",
+                extra_metadata={"apk_path": self.binary,
+                                "result_path": result_path})
+            self.log(f"[D] Flutter patch results saved: {result_file}")
+
             self.log("[+] MODE D: Flutter patching completed")
-        else:
-            self.log("[W] MODE D: Flutter patching stopped")
+            return True
 
-        return success
+        except Exception as e:
+            self.log(f"[!] MODE D: Flutter patching error: {e}")
+            result_file = write_generic_results(
+                f"Flutter patching error: {e}",
+                "flutter_patcher_error",
+                extra_metadata={"apk_path": self.binary, "error": str(e)})
+            self.log(f"[D] Error logged: {result_file}")
+            return False
 
 
 class ModeE(BaseMode):
@@ -579,28 +702,53 @@ class ModeE(BaseMode):
         self.log("[*] MODE E: Function finder started...")
         self._stop_event.clear()
 
-        steps = [
-            ("Initialising function finder", 0.2),
-            ("Loading binary with r2pipe", 0.3),
-            ("Analysing binary (aaa)", 0.4),
-            ("Searching STP prologue pattern", 0.35),
-            ("Scanning for add x0, x22, 0x30 (v2)", 0.3),
-            ("Scanning for add x<d+>, x<d+>, 0x30 (v3)", 0.3),
-            ("Cross-referencing matches", 0.25),
-            ("Deduplicating results", 0.15),
-            ("Generating function list", 0.2),
-            ("Reporting findings", 0.15),
-            ("Cleanup", 0.1),
-        ]
+        if not self.binary:
+            self.log("[!] MODE E: No target binary selected (use option [1])")
+            return False
 
-        success = self._run_steps("E", steps)
+        try:
+            from .flutter.find_functions import FunctionFinder
 
-        if success:
-            self.log("[+] MODE E: Function search completed")
-        else:
-            self.log("[W] MODE E: Function search stopped")
+            self.log("[E] Searching for v2 patterns (add x0, x22, 0x30)...")
+            self.progress(1, 2, "MODE E")
 
-        return success
+            if self.is_stopping():
+                self.log("[W] MODE E: Stopped before v2 search")
+                return False
+
+            finder = FunctionFinder(self.binary)
+
+            v2_results = finder.find_v2()
+            self.log(f"[+] v2: {len(v2_results)} functions found")
+
+            # Persist v2 results
+            result_file = write_function_results(
+                v2_results, "v2",
+                extra_metadata={"binary": self.binary, "pattern": "add x0, x22, 0x30"})
+            self.log(f"[E] v2 results saved: {result_file}")
+
+            self.progress(2, 2, "MODE E")
+
+            if self.is_stopping():
+                self.log("[W] MODE E: Stopped before v3 search")
+                return True  # v2 already completed
+
+            self.log("[E] Searching for v3 patterns (add x<d+>, x<d+>, 0x30)...")
+            v3_results = finder.find_v3()
+            self.log(f"[+] v3: {len(v3_results)} functions found")
+
+            # Persist v3 results
+            result_file = write_function_results(
+                v3_results, "v3",
+                extra_metadata={"binary": self.binary, "pattern": "add x<d+>, x<d+>, 0x30"})
+            self.log(f"[E] v3 results saved: {result_file}")
+
+            self.log(f"[+] MODE E: Function search completed (v2: {len(v2_results)}, v3: {len(v3_results)})")
+            return True
+
+        except Exception as e:
+            self.log(f"[!] MODE E: Function search error: {e}")
+            return False
 
 
 class ModeF(BaseMode):
@@ -626,28 +774,48 @@ class ModeF(BaseMode):
         self.log("[*] MODE F: Manifest Patcher started...")
         self._stop_event.clear()
 
-        steps = [
-            ("Initialising Manifest Patcher", 0.2),
-            ("Locating APKEditor jar", 0.15),
-            ("Decompiling APK", 0.5),
-            ("Reading AndroidManifest.xml", 0.2),
-            ("Removing license check receivers", 0.3),
-            ("Patching extractNativeLibs", 0.2),
-            ("Verifying manifest changes", 0.15),
-            ("Rebuilding APK", 0.4),
-            ("Verifying APK integrity", 0.2),
-            ("Cleaning work directory", 0.15),
-            ("Manifest patch complete", 0.1),
-        ]
+        if not self.binary:
+            self.log("[!] MODE F: No APK path provided (use option [1] with APK path)")
+            return False
 
-        success = self._run_steps("F", steps)
+        try:
+            from .flutter.manifest import process_manifest_patcher
+            from .apk.editor import ensure_apkeditor
 
-        if success:
-            self.log("[+] MODE F: Manifest patching completed")
-        else:
-            self.log("[W] MODE F: Manifest patching stopped")
+            self.log("[F] Locating APKEditor jar...")
+            self.progress(1, 2, "MODE F")
 
-        return success
+            jar_file = ensure_apkeditor()
+            if not jar_file:
+                self.log("[!] MODE F: APKEditor jar not available")
+                return False
+
+            if self.is_stopping():
+                self.log("[W] MODE F: Stopped before patching")
+                return False
+
+            self.log("[F] Patching AndroidManifest.xml...")
+            self.progress(2, 2, "MODE F")
+
+            success = process_manifest_patcher(self.binary, jar_file)
+
+            # Persist manifest patch results
+            result_file = write_generic_results(
+                f"Manifest patching {'succeeded' if success else 'failed'}\nAPK: {self.binary}",
+                "manifest_patcher",
+                extra_metadata={"apk_path": self.binary, "success": success})
+            self.log(f"[F] Manifest results saved: {result_file}")
+
+            if success:
+                self.log("[+] MODE F: Manifest patching completed")
+            else:
+                self.log("[W] MODE F: Manifest patching failed")
+
+            return success
+
+        except Exception as e:
+            self.log(f"[!] MODE F: Manifest patching error: {e}")
+            return False
 
 
 def get_mode(mode_name: str, log_cb: Callable, progress_cb: Callable,

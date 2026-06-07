@@ -12,6 +12,8 @@ import tempfile
 import zipfile
 import re
 
+from ..results_writer import write_related_functions
+
 
 def extract_arm64_folder_from_apk(apk_path, dest_parent='.'):
     """Extract arm64-v8a folder and libapp.so from APK.
@@ -216,6 +218,11 @@ def find_related_functions(lib_path, pp_address, timeout=12):
     for i, (func_addr, offset) in enumerate(functions, start=1):
         print(f" {i}. function_address = {func_addr} | offset_value = {offset}")
     print("\nRelated functions search completed.")
+
+    # Persist results to file
+    result_file = write_related_functions(functions, pp_address,
+                                          extra_metadata={"lib_path": lib_path})
+    print(f"Related functions saved: {result_file}")
 
     return functions
 
