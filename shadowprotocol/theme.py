@@ -10,6 +10,7 @@ class Colors:
     GREY = '\033[90m'
     GREEN = '\033[92m'
     YELLOW = '\033[93m'
+    MAGENTA = '\033[95m'
     BOLD = '\033[1m'
     DIM = '\033[2m'
     RESET = '\033[0m'
@@ -77,14 +78,14 @@ class Banner:
 
     SHADOWPROTOCOL = f"""{Colors.CYAN}{Colors.BOLD}
 \u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557
-\u2551  ShadowProtocol - Binary Patcher Pro v3.0  \u2551
-\u2551  Radare2 + Flutter + APK + 6 Modes        \u2551
+\u2551  ShadowProtocol - Le Grimoire v4.0       \u2551
+\u2551  Radare2 + Flutter + APK + 6 Rituels      \u2551
 \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d
 {Colors.RESET}"""
 
-    MODE_A = f"{Colors.GREEN}{Colors.BOLD}[MODE A]{Colors.RESET} {Colors.CYAN}Manual Assisted (pptool){Colors.RESET}"
-    MODE_B = f"{Colors.GREEN}{Colors.BOLD}[MODE B]{Colors.RESET} {Colors.CYAN}Auto-Patching{Colors.RESET}"
-    MODE_C = f"{Colors.GREEN}{Colors.BOLD}[MODE C]{Colors.RESET} {Colors.CYAN}Raw Radare2{Colors.RESET}"
-    MODE_D = f"{Colors.GREEN}{Colors.BOLD}[MODE D]{Colors.RESET} {Colors.CYAN}Flutter Patcher{Colors.RESET}"
-    MODE_E = f"{Colors.GREEN}{Colors.BOLD}[MODE E]{Colors.RESET} {Colors.CYAN}Find Functions{Colors.RESET}"
-    MODE_F = f"{Colors.GREEN}{Colors.BOLD}[MODE F]{Colors.RESET} {Colors.CYAN}Manifest Patcher{Colors.RESET}"
+    MODE_A = f"{Colors.GREEN}{Colors.BOLD}[RITUEL A]{Colors.RESET} {Colors.CYAN}L'Invocation Precise (pptool){Colors.RESET}"
+    MODE_B = f"{Colors.GREEN}{Colors.BOLD}[RITUEL B]{Colors.RESET} {Colors.CYAN}Le Balayage d'Ame{Colors.RESET}"
+    MODE_C = f"{Colors.GREEN}{Colors.BOLD}[RITUEL C]{Colors.RESET} {Colors.CYAN}La Connexion Directe (R2 brut){Colors.RESET}"
+    MODE_D = f"{Colors.GREEN}{Colors.BOLD}[RITUEL D]{Colors.RESET} {Colors.CYAN}Le Patcheur Flutter{Colors.RESET}"
+    MODE_E = f"{Colors.GREEN}{Colors.BOLD}[RITUEL E]{Colors.RESET} {Colors.CYAN}La Quete des Fonctions{Colors.RESET}"
+    MODE_F = f"{Colors.GREEN}{Colors.BOLD}[RITUEL F]{Colors.RESET} {Colors.CYAN}Le Patcheur de Manifeste{Colors.RESET}"

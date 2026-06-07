@@ -1,16 +1,14 @@
 """
-ShadowProtocol v3.0 Enhanced - Binary Patcher with Radare2 Integration
-Merged UI (Curses + ANSI) + Core Functionality (Radare2 + Target Selection)
+ShadowProtocol v4.0 - Le Grimoire de Transmutation Binaire
+Patchage binaire de librairies natives Android (.so) via Radare2
 + Flutter Patcher + APK Editor + Manifest Patcher + Function Finder
 
-Version: 3.0.0
-Status: Production Ready
-License: MIT
+Version: 4.0.0
+Licence: MIT
 """
 
-__version__ = "3.0.0"
-__author__ = "ShadowProtocol Enhanced Team"
-__license__ = "MIT"
+__version__ = "4.0.0"
+__app_name__ = "ShadowProtocol"
 
 from .main import ShadowProtocolApp, main
 

@@ -1,4 +1,4 @@
-"""Allow running as: python3 -m shadowprotocol [A|B|C|D|E|F]"""
+"""Point d'entree : python3 -m shadowprotocol [A|B|C|D|E|F]"""
 
 from .main import main
 

@@ -66,7 +66,6 @@ class ProjectValidator:
     """Validate entire project"""
 
     def __init__(self, project_path: str = "."):
-        """Initialize project validator"""
         self.project_path = Path(project_path)
         self.code_validator = CodeValidator()
         self.issues = {
@@ -78,7 +77,7 @@ class ProjectValidator:
     def validate_all(self) -> bool:
         """Run all validations"""
         print("\n" + "="*80)
-        print("PROJECT VALIDATION - ShadowProtocol v3.0")
+        print("PROJECT VALIDATION - ShadowProtocol v4.0")
         print("="*80 + "\n")
 
         py_files = list(self.project_path.rglob("*.py"))

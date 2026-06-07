@@ -1,13 +1,35 @@
-results/
-logs/
-*.pyc
+# Fichiers temporaires
 __pycache__/
-.shadowprotocol_session
-temp/
-*.apk
-*.so
+*.pyc
+*.pyo
 *.egg-info/
 dist/
 build/
+*.egg
+
+# Logs et resultats
+logs/
+results/
+
+# Session et temp
+.shadowprotocol_session
+temp/
+
+# Binaires
+*.apk
+*.so
+
+# Environnement
 venv/
 .env
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

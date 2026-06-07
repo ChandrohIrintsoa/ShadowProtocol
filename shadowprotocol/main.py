@@ -1,16 +1,21 @@
-#!/usr/bin/env python3
 """
-ShadowProtocol v3.0 - Main Application
-Fused version: TUI UI (v2) + Real Radare2 Functionality (v1)
-+ Flutter Patcher + APK Editor + Manifest Patcher + Function Finder
+ShadowProtocol v4.0 - Main Application
+Le Grimoire de Transmutation Binaire
 
-Interactive terminal UI with live logging, progress bar, and clean shutdown
-with real binary patching via Radare2 integration.
-Manual path entry for target selection.
+Orchestrateur principal de l'application:
+- Initialisation du TUI (curses avec fallback ANSI)
+- Gestion des entrees utilisateur (1=cible, 2=sigil, A-F=rituels, Q=quitter)
+- Execution des rituels dans des threads separes
+- Selection de cible binaire (chemin manuel + detection auto)
+- Collecte d'offset pour Rituel A
+- Sous-menu interactif pour Rituel C (pouvoirs Radare2)
+- Arret gracieux avec nettoyage
+- Adaptation au redimensionnement du terminal
 """
 
 import sys
 import os
+import re
 import time
 import signal
 import curses
@@ -18,288 +23,420 @@ import threading
 from datetime import datetime
 from typing import Optional
 
+from .config import Config
 from .logger import LoggerHandler
-from .modes import get_mode, BaseMode
-from .ui import CursesUI, ANSIUI
-from .target_selector import TargetSelector
-from .validator import DependencyValidator
+from .r2handler import Radare2Handler
+from .target import TargetSelector
+from .rituals import get_ritual, BaseRitual, RituelC
+from .grimoire import GrimoireUI, GrimoireANSI
 
 
 VALID_MODES = ('A', 'B', 'C', 'D', 'E', 'F')
-
-MODES_REQUIRING_TARGET = ('A', 'B', 'C')
+MODES_REQUIRING_TARGET = ('A', 'B', 'C', 'E')
 
 
 class ShadowProtocolApp:
-    """Main application orchestrator.
+    """Orchestrateur principal du Grimoire ShadowProtocol.
 
-    Manages the application lifecycle:
-    - UI initialization (curses with ANSI fallback)
-    - User input handling (a/b/c/d/e/f for modes, q to quit)
-    - Mode execution in separate threads
-    - Target binary selection (manual path entry)
-    - Offset collection for MODE A
-    - Graceful shutdown with cleanup
-    - Terminal resize adaptation
+    Gere le cycle de vie de l'application:
+    - Initialisation du TUI (curses avec fallback ANSI)
+    - Entrees utilisateur (1/2/a-f/q + sous-menu Rituel C)
+    - Execution des rituels dans des threads daemon
+    - Selection de cible binaire
+    - Collecte d'offset pour Rituel A
+    - Arret gracieux avec nettoyage
+    - Adaptation au redimensionnement terminal
     """
 
     def __init__(self):
-        """Initialize application with default state and signal handlers."""
         self.ui = None
         self.logger = None
-        self.current_mode: Optional[BaseMode] = None
-        self.mode_thread: Optional[threading.Thread] = None
+        self.current_ritual: Optional[BaseRitual] = None
+        self.ritual_thread: Optional[threading.Thread] = None
         self.running = True
         self.stop_requested = False
         self._requested_mode: Optional[str] = None
 
-        # Target selection
+        # Cible
         self.target_selector = TargetSelector()
         self.current_target: Optional[str] = None
         self.current_offset: Optional[str] = None
-        self._dry_run = False
+        self.r2_handler: Optional[Radare2Handler] = None
 
-        # Signal handlers for external interrupts
+        # Detection automatique des .so
+        self._auto_detected: list = []
+
+        # Handlers de signaux
         signal.signal(signal.SIGINT, self._handle_signal)
         signal.signal(signal.SIGTERM, self._handle_signal)
 
     def _handle_signal(self, signum, frame):
-        """Handle system signals (SIGINT, SIGTERM).
-
-        Sets flags to break the main loop and initiate cleanup.
-        """
+        """Gerer les signaux systeme (SIGINT, SIGTERM)."""
         self.stop_requested = True
         self.running = False
 
     def display_welcome(self):
-        """Display welcome messages with mode instructions."""
-        self.logger.success("=== ShadowProtocol v3.0 - Fusion TUI + Radare2 ===")
-        self.logger.info("Press [1] to enter target path manually")
-        self.logger.info("Press [2] to enter PPTool offset (for MODE A)")
-        self.logger.info("Press [a], [b], [c] for binary patching modes")
-        self.logger.info("Press [d] for Flutter Patcher mode")
-        self.logger.info("Press [e] for Find Functions mode")
-        self.logger.info("Press [f] for Manifest Patcher mode")
-        self.logger.info("Press [q] at any time to stop cleanly")
-        self.logger.warning("Radare2 and r2pipe are required for full functionality")
+        """Afficher les messages d'accueil."""
+        self.logger.success("Le Grimoire ShadowProtocol s'ouvre...")
+        self.logger.info("Forge pour alterer les esprits de pierre (binaires .so)")
+        self.logger.info("par l'invocation de Radare2")
+        self.logger.info("")
+        self.logger.info("[1] Entrer le chemin de l'esprit cible (.so / .apk)")
+        self.logger.info("[2] Entrer le sigil hex (offset pptool, pour Rituel A)")
+        self.logger.info("[A] Rituel A - L'Invocation Precise")
+        self.logger.info("[B] Rituel B - Le Balayage d'Ame")
+        self.logger.info("[C] Rituel C - La Connexion Directe (canal R2 brut)")
+        self.logger.info("[D] Rituel D - Le Patcheur Flutter")
+        self.logger.info("[E] Rituel E - La Quete des Fonctions")
+        self.logger.info("[F] Rituel F - Le Patcheur de Manifeste")
+        self.logger.info("[Q] Fermer le Grimoire")
+        self.logger.warning("Radare2 et r2pipe sont requis pour les Rituels A-C")
 
-    def _start_mode(self, mode_name: str):
-        """Start a processing mode in a separate daemon thread.
+    def _auto_detect_targets(self):
+        """Detecter automatiquement les fichiers .so a l'ouverture."""
+        self._auto_detected = self.target_selector.find_targets(recursive=True)
+        if self._auto_detected:
+            self.logger.info(f"{len(self._auto_detected)} esprit(s) detecte(s) aux alentours")
+            for t in self._auto_detected:
+                self.logger.info(f"  -> {t}")
+            self.ui.set_target_info(
+                "---", "---", "---", "Ferme",
+                self._auto_detected
+            )
 
-        Creates the mode instance via factory, sets the UI mode/status,
-        and launches execution in a background thread.
+    def _open_r2(self, path: str) -> bool:
+        """Ouvrir un handler Radare2 pour la cible."""
+        if self.r2_handler:
+            try:
+                self.r2_handler.close()
+            except Exception:
+                pass
+
+        self.r2_handler = Radare2Handler(path)
+        name, arch, size, rw = self.target_selector.get_file_info(path)
+        self.ui.set_target_info(name, arch, size, "Pret", self._auto_detected)
+        return True
+
+    def _start_ritual(self, mode_name: str):
+        """Demarrer un rituel dans un thread daemon.
 
         Args:
-            mode_name: 'A', 'B', 'C', 'D', 'E', or 'F'
+            mode_name: 'A', 'B', 'C', 'D', 'E', ou 'F'
         """
         if mode_name.upper() in MODES_REQUIRING_TARGET and not self.current_target:
-            self.logger.warning("Please select a target first (option [1])")
+            self.logger.warning("Selectionnez un esprit cible d'abord (option [1])")
             return
 
         if mode_name.upper() == 'A' and not self.current_offset:
-            self.logger.warning("Please provide an offset first (option [2])")
+            self.logger.warning("Fournissez un sigil hex d'abord (option [2])")
             return
 
         try:
-            self.current_mode = get_mode(
-                mode_name,
-                self.logger.info,
-                self.ui.set_progress,
-                binary_path=self.current_target,
-                offset=self.current_offset if mode_name.upper() == 'A' else None
-            )
-            self.ui.set_mode(f"MODE {mode_name.upper()}")
-            self.ui.set_status("Running...")
+            self.ui.clear_transmutations()
 
-            self.mode_thread = threading.Thread(
-                target=self._execute_mode_thread,
+            # Ouvrir un nouveau handler r2 pour les rituels A/B/C/E
+            if mode_name.upper() in ('A', 'B', 'C', 'E'):
+                self._open_r2(self.current_target)
+
+            ritual = get_ritual(
+                mode_name,
+                self._log_with_transmutation,
+                self.ui.set_progress,
+                r2_handler=self.r2_handler,
+                offset=self.current_offset if mode_name.upper() == 'A' else None,
+                binary_path=self.current_target if mode_name.upper() in ('D', 'E', 'F') else None
+            )
+            self.current_ritual = ritual
+            self.ui.set_mode(f"RITUEL {mode_name.upper()}")
+
+            self.ritual_thread = threading.Thread(
+                target=self._execute_ritual_thread,
                 daemon=True
             )
-            self.mode_thread.start()
+            self.ritual_thread.start()
         except ValueError as e:
             self.logger.error(str(e))
 
-    def _execute_mode_thread(self):
-        """Execute mode in background thread and update status on completion.
+    def _log_with_transmutation(self, message: str):
+        """Callback de log qui detecte et enregistre les transmutations."""
+        self.logger.info(message)
 
-        Called as the thread target. Updates the UI status to
-        'Completed', 'Stopped', or 'Error' based on the result.
-        """
+        # Detecter les lignes de resultat de patch dans les logs
+        match = re.search(
+            r'(0x[0-9a-fA-F]+)\s*\|\s*(add\s+x\d+,\s*x\d+,\s*0x30)\s*->\s*(0x20)\s*(OK|ECHEC)',
+            message
+        )
+        if match:
+            offset = match.group(1)
+            original = match.group(2)
+            patched_val = match.group(3)
+            status = match.group(4) == "OK"
+            self.ui.add_transmutation(offset, original, patched_val, status)
+
+    def _execute_ritual_thread(self):
+        """Executer le rituel dans un thread et mettre a jour le statut."""
         try:
-            success = self.current_mode.execute()
+            success = self.current_ritual.execute()
             if success:
-                self.ui.set_status("Completed")
-                self.logger.success("Mode execution completed successfully")
+                self.ui.set_mode("TERMINE")
+                self.logger.success("Rituel execute avec succes")
             else:
-                self.ui.set_status("Stopped")
-                self.logger.warning("Mode execution stopped")
+                self.ui.set_mode("ARRETE")
+                self.logger.warning("Rituel interrompu ou echoue")
         except Exception as e:
-            self.logger.error(f"Mode error: {e}")
-            self.ui.set_status("Error")
+            self.logger.error(f"Erreur rituel: {e}")
+            self.ui.set_mode("ERREUR")
 
     def _request_target_path(self):
-        """Request manual target path entry via TUI input mode."""
+        """Demander le chemin de la cible via le TUI."""
         if self.ui.is_input_active:
-            return  # Already in input mode
-
-        self.logger.info("Enter the path to the target .so file:")
-        self.ui.enter_input_mode("Path: ", self._on_target_path_entered)
+            return
+        self.logger.info("Entrez le chemin vers le fichier cible (.so / .apk):")
+        self.ui.enter_input_mode("Chemin: ", self._on_target_path_entered)
 
     def _on_target_path_entered(self, path: str):
-        """Callback when user submits a target path.
-
-        Args:
-            path: The file path entered by the user.
-        """
+        """Callback quand l'utilisateur soumet un chemin de cible."""
         validated = self.target_selector.validate_manual_path(path)
-
         if validated:
             self.current_target = validated
-            info = self.target_selector.get_file_info(validated)
-            self.logger.success(f"Target selected: {validated}")
-            self.logger.info(f"  {info}")
+            name, arch, size, rw = self.target_selector.get_file_info(validated)
+            self.logger.success(f"Esprit cible: {validated}")
+            self.logger.info(f"  Nom: {name} | Nature: {arch} | Poids: {size} | RW: {rw}")
+            self._open_r2(validated)
         else:
-            self.logger.error(f"Invalid target: {path}")
-            self.logger.info("The file must exist and be a valid ELF binary (.so)")
+            # Essayer aussi comme chemin simple meme si pas .so valide (pour APK)
+            if os.path.isfile(path):
+                self.current_target = os.path.abspath(path)
+                self.logger.success(f"Fichier selectionne: {self.current_target}")
+                self._open_r2(self.current_target)
+            else:
+                self.logger.error(f"Esprit invalide: {path}")
+                self.logger.info("Le fichier doit exister et etre un binaire ELF (.so) ou APK")
 
     def _request_offset(self):
-        """Request PPTool offset entry via TUI input mode (for MODE A)."""
+        """Demander l'offset pptool via le TUI (pour Rituel A)."""
         if self.ui.is_input_active:
-            return  # Already in input mode
-
-        if not self.current_target:
-            self.logger.warning("Please select a target first (option [1])")
             return
-
-        self.logger.info("Enter the PPTool offset (format: 0x...):")
+        if not self.current_target:
+            self.logger.warning("Selectionnez un esprit cible d'abord (option [1])")
+            return
+        self.logger.info("Entrez le sigil hexadecimal (offset pptool, format: 0x...):")
         self.ui.enter_input_mode("Offset: ", self._on_offset_entered)
 
     def _on_offset_entered(self, offset: str):
-        """Callback when user submits an offset.
-
-        Args:
-            offset: The offset string entered by the user.
-        """
-        import re
+        """Callback quand l'utilisateur soumet un offset."""
         if re.match(r'^0x[0-9a-fA-F]+$', offset):
             self.current_offset = offset
-            self.logger.success(f"Offset set: {offset}")
+            self.logger.success(f"Sigil defini: {offset}")
         else:
-            self.logger.error(f"Invalid offset format: {offset}")
-            self.logger.info("Expected format: 0x... (e.g. 0x1234)")
+            self.logger.error(f"Format de sigil invalide: {offset}")
+            self.logger.info("Format attendu: 0x... (ex: 0x123456)")
+
+    def _handle_c_menu_choice(self, ch: str):
+        """Gerer les choix du sous-menu Rituel C.
+
+        Les choix 1-9 sont des pouvoirs Radare2.
+        0 = quitter le canal.
+        Les choix necessitant des parametres ouvrent un mode saisie.
+        """
+        if ch == '0':
+            self.logger.info("Canal R2 ferme")
+            self.ui.c_menu_active = False
+            self.ui.set_mode("EN VEILLE")
+            return
+
+        # Les choix qui necessitent des parametres
+        param_choices = {
+            '1': ("Adresse & ASM (ex: s 0x1000; wa add x0,x22,0x20): ", "seek_write"),
+            '3': ("Adresse + nb lignes (ex: pd 20 @ 0x1000): ", "pd"),
+            '4': ("Adresse + nb octets (ex: px 64 @ 0x1000): ", "px"),
+            '7': ("Adresse cible (ex: 0x1000): ", "axt"),
+            '8': ("Instruction ASM (ex: add x0,x22,0x20): ", "wa"),
+            '9': ("Hex + adresse (ex: 90909090 @ 0x1000): ", "wx"),
+        }
+
+        no_param_choices = {
+            '2': "aaa",
+            '5': "iS",
+            '6': "iz",
+        }
+
+        if ch in no_param_choices:
+            # Executer directement sans parametre
+            self._execute_c_ritual(ch, no_param_choices[ch])
+        elif ch in param_choices:
+            prompt, _ = param_choices[ch]
+            self.logger.info(f"Pouvoir {ch} selectionne. Entrez les parametres:")
+            self.ui.enter_input_mode(prompt, lambda cmd, c=ch: self._execute_c_ritual(c, cmd))
+        else:
+            self.logger.warning(f"Pouvoir inconnu: {ch}")
+
+    def _execute_c_ritual(self, choix: str, cmd: str):
+        """Executer le Rituel C avec le pouvoir et la commande choisis."""
+        if not self.current_target:
+            self.logger.warning("Aucun esprit cible charge")
+            return
+
+        self._open_r2(self.current_target)
+        ritual = RituelC(
+            self._log_with_transmutation,
+            self.ui.set_progress,
+            r2_handler=self.r2_handler
+        )
+        ritual.set_pouvoir(choix, cmd)
+        self.current_ritual = ritual
+        self.ui.set_mode("RITUEL C")
+        self.ui.c_menu_active = False
+
+        self.ritual_thread = threading.Thread(
+            target=self._execute_ritual_thread,
+            daemon=True
+        )
+        self.ritual_thread.start()
 
     def handle_input(self, ch: str) -> bool:
-        """Handle keyboard input from the main loop.
+        """Gerer les entrees clavier.
 
         Args:
-            ch: The key pressed (lowercase)
+            ch: Touche pressee (minuscule)
 
         Returns:
-            False if the application should quit, True otherwise.
+            False si l'application doit quitter, True sinon.
         """
-        if ch == 'q' or ch == '\x03':  # 'q' or Ctrl+C
-            self.logger.info("Shutdown requested by user...")
+        # Si le sous-menu Rituel C est actif
+        if hasattr(self.ui, '_c_menu_active') and self.ui.c_menu_active:
+            if ch == '\x1b':  # Escape
+                self.ui.c_menu_active = False
+                self.logger.info("Retour au menu principal")
+            elif ch in ('0', '1', '2', '3', '4', '5', '6', '7', '8', '9'):
+                self._handle_c_menu_choice(ch)
+            else:
+                self.logger.warning(f"Touche inconnue en mode C: {ch}")
+            return True
+
+        # Mode normal
+        if ch == 'q' or ch == '\x03':
+            self.logger.info("Fermeture du Grimoire demandee...")
             return False
         elif ch == '1':
             self._request_target_path()
         elif ch == '2':
             self._request_offset()
-        elif ch in ('a', 'b', 'c', 'd', 'e', 'f'):
-            if self.mode_thread and self.mode_thread.is_alive():
-                self.logger.warning("A process is already running")
+        elif ch == 'a':
+            if self.ritual_thread and self.ritual_thread.is_alive():
+                self.logger.warning("Un rituel est deja en cours")
             else:
-                self.logger.info(f"Starting MODE {ch.upper()}...")
-                self._start_mode(ch)
+                self.logger.info("Rituel A : L'Invocation Precise...")
+                self._start_ritual('A')
+        elif ch == 'b':
+            if self.ritual_thread and self.ritual_thread.is_alive():
+                self.logger.warning("Un rituel est deja en cours")
+            else:
+                self.logger.info("Rituel B : Le Balayage d'Ame...")
+                self._start_ritual('B')
+        elif ch == 'c':
+            if self.ritual_thread and self.ritual_thread.is_alive():
+                self.logger.warning("Un rituel est deja en cours")
+            else:
+                self.logger.info("Rituel C : La Connexion Directe")
+                self.logger.info("Selectionnez un pouvoir Radare2:")
+                self.ui.c_menu_active = True
+        elif ch == 'd':
+            if self.ritual_thread and self.ritual_thread.is_alive():
+                self.logger.warning("Un rituel est deja en cours")
+            else:
+                self.logger.info("Rituel D : Le Patcheur Flutter...")
+                self._start_ritual('D')
+        elif ch == 'e':
+            if self.ritual_thread and self.ritual_thread.is_alive():
+                self.logger.warning("Un rituel est deja en cours")
+            else:
+                self.logger.info("Rituel E : La Quete des Fonctions...")
+                self._start_ritual('E')
+        elif ch == 'f':
+            if self.ritual_thread and self.ritual_thread.is_alive():
+                self.logger.warning("Un rituel est deja en cours")
+            else:
+                self.logger.info("Rituel F : Le Patcheur de Manifeste...")
+                self._start_ritual('F')
         else:
-            self.logger.warning(f"Unknown key: {ch}")
+            self.logger.warning(f"Touche inconnue: {ch}")
         return True
 
     def _cleanup(self):
-        """Cleanup resources before exit.
-
-        - Stops the current mode execution
-        - Waits for mode thread with 5-second timeout
-        - Displays final messages
-        - Restores terminal state
-        """
+        """Nettoyage avant la sortie."""
         if self.logger:
-            self.logger.info("Clean shutdown in progress...")
+            self.logger.info("Fermeture du Grimoire en cours...")
 
-        # Signal mode to stop
-        if self.current_mode:
-            self.current_mode.stop()
+        if self.current_ritual:
+            self.current_ritual.stop()
 
-        # Wait for mode thread to finish
-        if self.mode_thread and self.mode_thread.is_alive():
+        if self.ritual_thread and self.ritual_thread.is_alive():
             if self.logger:
-                self.logger.warning("Interrupting current process...")
-            self.mode_thread.join(timeout=5)
+                self.logger.warning("Interruption du rituel en cours...")
+            self.ritual_thread.join(timeout=5)
 
-            if self.mode_thread.is_alive():
+            if self.ritual_thread.is_alive():
                 if self.logger:
-                    self.logger.error("Timeout - forcing stop")
+                    self.logger.error("Timeout - arret force")
 
-        # Final display refresh to show cleanup messages
+        if self.r2_handler:
+            try:
+                self.r2_handler.close()
+            except Exception:
+                pass
+
         if self.ui:
             self.ui.refresh()
             time.sleep(0.3)
 
         if self.logger:
-            self.logger.success("Cleanup complete - Goodbye!")
+            self.logger.success("Grimoire ferme - Au revoir!")
 
-        # Final refresh and terminal restore
         if self.ui:
             self.ui.refresh()
             time.sleep(0.5)
             self.ui.stop()
 
     def _main_loop(self):
-        """Common main loop logic shared by CursesUI and ANSIUI.
-
-        This is the core event loop that:
-        1. Refreshes the display
-        2. Detects terminal resize
-        3. Processes keyboard input
-        4. Monitors mode thread completion
-        5. Sleeps briefly to reduce CPU usage
-        """
+        """Boucle principale partagee par GrimoireUI et GrimoireANSI."""
         self.display_welcome()
+        self._auto_detect_targets()
 
-        # Auto-run mode if specified via CLI argument
+        # Verification des dependances
+        if not Radare2Handler.is_available():
+            self.logger.warning("Radare2 non trouve - installez: apt install radare2")
+        if not Radare2Handler.check_r2pipe():
+            self.logger.warning("r2pipe non trouve - installez: pip install r2pipe")
+
         if self._requested_mode:
-            self._start_mode(self._requested_mode)
+            self._start_ritual(self._requested_mode)
 
         try:
             while self.running and not self.stop_requested:
-                # Refresh display
                 self.ui.refresh()
 
-                # Check terminal resize
                 if self.ui.update_dimensions():
-                    self.logger.debug("Terminal resized")
+                    self.logger.debug("Terminal redimensionne")
 
-                # Handle keyboard input (non-blocking)
                 ch = self.ui.get_input()
                 if ch:
                     if not self.handle_input(ch):
                         break
 
-                # Check if mode thread has finished
-                if self.mode_thread and not self.mode_thread.is_alive():
-                    self.mode_thread = None
+                if self.ritual_thread and not self.ritual_thread.is_alive():
+                    self.ritual_thread = None
                     if self.running and not self.stop_requested:
-                        self.ui.set_mode("IDLE")
-                        self.ui.set_status("Ready")
+                        self.ui.set_mode("EN VEILLE")
 
-                # Small delay to avoid excessive CPU usage
                 time.sleep(0.05)
 
         except KeyboardInterrupt:
             if self.logger:
-                self.logger.warning("Keyboard interrupt detected")
+                self.logger.warning("Interruption clavier detectee")
         except Exception as e:
             if self.logger:
-                self.logger.error(f"Error: {e}")
+                self.logger.error(f"Erreur: {e}")
         finally:
             try:
                 self._cleanup()
@@ -307,108 +444,101 @@ class ShadowProtocolApp:
                 pass
 
     def run(self, mode: Optional[str] = None):
-        """Run the application.
+        """Lancer l'application.
 
-        Attempts to use curses for the best terminal experience.
-        Falls back to ANSI escape sequences if curses is unavailable.
+        Tente d'utiliser curses pour la meilleure experience terminal.
+        Fallback vers ANSI si curses indisponible.
 
         Args:
-            mode: Optional mode to auto-run ('A'-'F').
-                  If None, starts in interactive mode.
+            mode: Mode a executer automatiquement ('A'-'F').
         """
-        # Validate deps before UI start
-        required = [mode] if mode else ['A', 'B', 'C']
-        ok, messages = DependencyValidator.validate_all(required)
-
-        for msg in messages:
-            print(msg)
-
-        if not ok:
-            print("\n[!] Missing dependencies. Install and retry.")
-            sys.exit(1)
-
         self._requested_mode = mode
 
+        # Verification minimale des dependances
+        if not Radare2Handler.is_available():
+            print("[!] Radare2 (r2) non trouve sur le systeme")
+            print("    Installez: sudo apt install radare2")
+            print("    Termux:    pkg install radare2")
+            print()
+
+        if not Radare2Handler.check_r2pipe():
+            print("[!] Module r2pipe non trouve")
+            print("    Installez: pip install r2pipe")
+            print()
+
         try:
-            # Primary: curses-based UI
             curses.wrapper(self._curses_main)
         except KeyboardInterrupt:
-            print("\n[!] Stopped by user")
+            print("\n[!] Arrete par l'utilisateur")
         except Exception:
-            # Fallback: ANSI-based UI
             try:
-                self.ui = ANSIUI()
+                self.ui = GrimoireANSI()
                 log_file = self._get_log_file_path()
-                self.logger = LoggerHandler(callback=self.ui.add_log, log_file=log_file)
-                self.logger.success("=== Session started (ANSI fallback) ===")
+                self.logger = LoggerHandler(callback=self.ui.add_vision, log_file=log_file)
+                self.logger.success("Session demarree (fallback ANSI)")
                 self._main_loop()
             except KeyboardInterrupt:
-                print("\n[!] Stopped by user")
+                print("\n[!] Arrete par l'utilisateur")
             except Exception as e:
-                print(f"\n[!] Error: {e}")
+                print(f"\n[!] Erreur: {e}")
                 sys.exit(1)
 
     def _curses_main(self, stdscr):
-        """Initialize CursesUI and run main loop.
-
-        Called by curses.wrapper which handles terminal
-        setup and teardown automatically.
-
-        Args:
-            stdscr: The curses standard screen object
-        """
-        self.ui = CursesUI(stdscr)
+        """Initialiser GrimoireUI et lancer la boucle principale."""
+        self.ui = GrimoireUI(stdscr)
         log_file = self._get_log_file_path()
-        self.logger = LoggerHandler(callback=self.ui.add_log, log_file=log_file)
-        self.logger.success("=== Session started ===")
+        self.logger = LoggerHandler(callback=self.ui.add_vision, log_file=log_file)
+        self.logger.success("Le Grimoire s'ouvre...")
         self._main_loop()
         return self.ui
 
     def _get_log_file_path(self) -> str:
-        """Generate a timestamped log file path in logs/ directory."""
+        """Generer un chemin de fichier log avec horodatage."""
+        Config.init()
         os.makedirs('logs', exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        return f"logs/session_{timestamp}.log"
+        return f"logs/grimoire_{timestamp}.log"
 
 
 def main():
-    """Entry point for the shadowprotocol command.
+    """Point d'entree pour la commande shadowprotocol.
 
     Usage:
-        shadowprotocol          - Interactive mode (choose a/b/c/d/e/f)
-        shadowprotocol A        - Run MODE A directly
-        shadowprotocol B        - Run MODE B directly
-        shadowprotocol C        - Run MODE C directly
-        shadowprotocol D        - Run MODE D (Flutter Patcher) directly
-        shadowprotocol E        - Run MODE E (Find Functions) directly
-        shadowprotocol F        - Run MODE F (Manifest Patcher) directly
-        shadowprotocol --check-deps - Validate system dependencies
-        shadowprotocol --dry-run A  - Dry-run MODE A (preview changes)
+        shadowprotocol          - Mode interactif
+        shadowprotocol A        - Rituel A directement
+        shadowprotocol B        - Rituel B directement
+        shadowprotocol C        - Rituel C directement
+        shadowprotocol D        - Rituel D directement
+        shadowprotocol E        - Rituel E directement
+        shadowprotocol F        - Rituel F directement
+        shadowprotocol --check  - Verifier les dependances
+        shadowprotocol --check-deps - Verifier les dependances (v3 compat)
+        shadowprotocol --dry-run A  - Dry-run Rituel A
     """
     app = ShadowProtocolApp()
 
     if len(sys.argv) > 1:
         arg = sys.argv[1]
 
-        # --check-deps: validate dependencies only
-        if arg == '--check-deps':
+        # --check / --check-deps: validate dependencies only
+        if arg in ('--check', '--check-deps'):
             modes = sys.argv[2:] if len(sys.argv) > 2 else []
+            from .validator import DependencyValidator
             ok, messages = DependencyValidator.validate_all(modes)
             for msg in messages:
                 print(msg)
             if not ok:
-                print("\n[!] Missing dependencies. Install and retry.")
+                print("\n[!] Dependances manquantes. Installez et reessayez.")
                 sys.exit(1)
             else:
-                print("\n[+] All dependencies satisfied.")
+                print("\n[+] Toutes les dependances sont satisfaites.")
                 sys.exit(0)
 
         # --dry-run: preview mode without applying changes
         if arg == '--dry-run':
             mode_arg = sys.argv[2].upper() if len(sys.argv) > 2 else None
             if mode_arg and mode_arg in VALID_MODES:
-                print(f"[*] DRY RUN MODE {mode_arg} - No changes will be applied")
-                app._dry_run = True
+                print(f"[*] DRY RUN RITUEL {mode_arg} - Aucun changement ne sera applique")
                 app.run(mode_arg)
             else:
                 print("Usage: shadowprotocol --dry-run [A|B|C|D|E|F]")
@@ -419,10 +549,10 @@ def main():
         if mode in VALID_MODES:
             app.run(mode)
         else:
-            print(f"Unknown mode: {mode}")
+            print(f"Rituel inconnu: {mode}")
             print("Usage: shadowprotocol [A|B|C|D|E|F]")
-            print("        shadowprotocol --check-deps")
-            print("        shadowprotocol --dry-run [A|B|C|D|E|F]")
+            print("       shadowprotocol --check")
+            print("       shadowprotocol --dry-run [A|B|C|D|E|F]")
             sys.exit(1)
     else:
         app.run()

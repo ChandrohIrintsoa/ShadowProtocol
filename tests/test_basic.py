@@ -8,7 +8,7 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from shadowprotocol.target_selector import TargetSelector, TargetValidator
+from shadowprotocol.target import TargetSelector, TargetValidator
 from shadowprotocol.validator import DependencyValidator, CodeValidator
 from shadowprotocol.config import Config
 
@@ -160,7 +160,7 @@ class TestConfig:
     def test_get_default(self):
         """Config.get returns default value."""
         result = Config.get('radare2_timeout')
-        assert result == 30
+        assert result == 60  # Merged default from v4.0
 
     def test_get_unknown_key(self):
         """Config.get returns None for unknown keys."""

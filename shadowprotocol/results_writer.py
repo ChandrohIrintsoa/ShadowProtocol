@@ -109,7 +109,7 @@ def write_patch_results(
 
 
 def write_function_results(
-    functions: List[Dict[str, Any]],
+    functions: List,
     search_type: str,
     results_dir: Optional[str] = None,
     extra_metadata: Optional[Dict[str, Any]] = None
