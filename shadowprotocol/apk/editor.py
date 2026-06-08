@@ -17,7 +17,6 @@ import shutil
 import subprocess
 import urllib.request
 
-
 def find_apkeditor_jar():
     """Find APKEditor JAR in the current directory.
 
@@ -29,7 +28,6 @@ def find_apkeditor_jar():
             return f
     jars = glob.glob("APKEditor*.jar") + glob.glob("*APKEditor*.jar")
     return jars[0] if jars else None
-
 
 def get_latest_apkeditor_url():
     """Get the latest APKEditor download URL from GitHub.
@@ -49,7 +47,6 @@ def get_latest_apkeditor_url():
     return ("APKEditor.jar",
             "https://github.com/REAndroid/APKEditor/releases/latest/download/APKEditor.jar")
 
-
 def download_file(url, outname):
     """Download a file from URL.
 
@@ -62,7 +59,6 @@ def download_file(url, outname):
     with urllib.request.urlopen(req) as resp, open(outname, 'wb') as f:
         shutil.copyfileobj(resp, f)
     print("Download completed.")
-
 
 def ensure_apkeditor():
     """Ensure APKEditor JAR is available, downloading if necessary.
@@ -79,7 +75,6 @@ def ensure_apkeditor():
     download_file(url, name)
     return name
 
-
 def has_java():
     """Check if Java is available on the system.
 
@@ -87,7 +82,6 @@ def has_java():
         True if Java is found.
     """
     return shutil.which("java") is not None
-
 
 def run_merge(jarfile, apks, apk):
     """Merge split APKs into a single APK using APKEditor.
@@ -103,7 +97,6 @@ def run_merge(jarfile, apks, apk):
     cmd = ["java", "-jar", jarfile, "m", "-i", apks, "-o", apk]
     print("Merging split APKs...")
     return subprocess.call(cmd)
-
 
 def auto_clean_splitfolder(base_name):
     """Clean up split APK folder after merge.

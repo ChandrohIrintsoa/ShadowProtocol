@@ -9,10 +9,9 @@ Each output file is clearly identified and accessible.
 import os
 import json
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 from .config import Config
-
 
 def _ensure_results_dir(results_dir: Optional[str] = None) -> str:
     """Ensure the results directory exists and return its path."""
@@ -24,11 +23,9 @@ def _ensure_results_dir(results_dir: Optional[str] = None) -> str:
     os.makedirs(target_dir, exist_ok=True)
     return target_dir
 
-
 def _timestamp_tag() -> str:
     """Generate a compact timestamp tag for file naming."""
     return datetime.now().strftime("%Y%m%d_%H%M%S")
-
 
 def write_offset_results(
     offsets: List[Dict[str, Any]],
@@ -68,7 +65,6 @@ def write_offset_results(
                 f.write("\n")
     return filepath
 
-
 def write_patch_results(
     patch_results: Dict[str, Any],
     mode_label: str,
@@ -106,7 +102,6 @@ def write_patch_results(
                 f.write(f"  {info}\n")
             f.write("\n")
     return filepath
-
 
 def write_function_results(
     functions: List,
@@ -146,7 +141,6 @@ def write_function_results(
                 f.write("\n")
     return filepath
 
-
 def write_related_functions(
     functions: List[tuple],
     pp_address: str,
@@ -176,7 +170,6 @@ def write_related_functions(
                 f.write(f"  {i}. function_address = {func_addr} | offset_value = {offset_val}\n")
         f.write("\n")
     return filepath
-
 
 def write_generic_results(
     data: Any,

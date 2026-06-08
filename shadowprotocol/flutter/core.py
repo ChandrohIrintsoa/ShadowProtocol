@@ -14,7 +14,6 @@ import re
 
 from ..results_writer import write_related_functions
 
-
 def extract_arm64_folder_from_apk(apk_path, dest_parent='.'):
     """Extract arm64-v8a folder and libapp.so from APK.
 
@@ -65,7 +64,6 @@ def extract_arm64_folder_from_apk(apk_path, dest_parent='.'):
 
     return dst_folder
 
-
 def run_blutter(filename, apk_dir='.'):
     """Run Blutter to extract asm files.
 
@@ -108,7 +106,6 @@ def run_blutter(filename, apk_dir='.'):
 
     return out_dir
 
-
 def cleanup_workspace(apk_dir='.'):
     """Clean up temporary files and folders.
 
@@ -127,7 +124,6 @@ def cleanup_workspace(apk_dir='.'):
             os.remove(file_path)
             print(f"File removed: {file_path}")
 
-
 def replace_lib_in_apk(apk_path, patched_lib):
     """Replace libapp.so in APK with patched version.
 
@@ -145,7 +141,6 @@ def replace_lib_in_apk(apk_path, patched_lib):
                 zout.writestr(item, zin.read(item.filename))
     os.replace(tmp_apk, apk_path)
     print(f"libapp.so replaced in {apk_path}")
-
 
 def find_related_functions(lib_path, pp_address, timeout=12):
     """Find related functions for a given pp_address using pptool.
@@ -225,7 +220,6 @@ def find_related_functions(lib_path, pp_address, timeout=12):
     print(f"Related functions saved: {result_file}")
 
     return functions
-
 
 def parse_selection(selection_str, max_index):
     """Parse user selection string into list of indices.

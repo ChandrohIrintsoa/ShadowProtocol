@@ -8,7 +8,6 @@ par variables d'environnement.
 import os
 from pathlib import Path
 
-
 class Config:
     """Configuration globale avec surcharge env."""
 

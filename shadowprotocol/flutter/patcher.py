@@ -21,7 +21,7 @@ from .core import (
     replace_lib_in_apk,
     find_related_functions,
 )
-from ..results_writer import write_patch_results, write_generic_results
+from ..results_writer import write_patch_results
 
 # Configuration defaults
 KEYWORDS_TRUE = ["keyword"]
@@ -40,7 +40,6 @@ ASM_FALSE_PATTERNS = [
     r"(\b0x[0-9a-fA-F]+).*false\b",
     r"^(\b0x[0-9a-fA-F]+):.*\bfalse"
 ]
-
 
 class FlutterPatcher:
     """Flutter patcher with configurable options.
@@ -139,7 +138,6 @@ class FlutterPatcher:
 
         return apk_path
 
-
 def analyze_function_with_r2_commands(libso_path, func_addr):
     """Analyze a function using r2pipe commands.
 
@@ -170,7 +168,6 @@ def analyze_function_with_r2_commands(libso_path, func_addr):
     except Exception as e:
         print(f"R2 command analysis error: {e}")
         return ""
-
 
 def patch_true_functions(libso_path, related_funcs, indices):
     """PP PATCHING: FALSE patch mode (0x20 -> 0x30).
@@ -262,7 +259,6 @@ def patch_true_functions(libso_path, related_funcs, indices):
 
     return results
 
-
 def patch_false_functions(libso_path, related_funcs, indices):
     """PP PATCHING: TRUE patch mode (0x30 -> 0x20).
 
@@ -353,7 +349,6 @@ def patch_false_functions(libso_path, related_funcs, indices):
 
     return results
 
-
 def patch_selected_functions(libso_path, related_funcs, patch_instr="wa add x0, x22, 0x20", indices=None):
     """Function patching with specified indices.
 
@@ -424,7 +419,6 @@ def patch_selected_functions(libso_path, related_funcs, patch_instr="wa add x0, 
 
     return results
 
-
 def search_asm_folder(asm_folder):
     """Search for regex patterns in .dart files within asm folder.
 
@@ -492,7 +486,6 @@ def search_asm_folder(asm_folder):
     print(f"\nTotal matches found: {len(all_matches)}")
     return all_matches
 
-
 def create_smngn_file(matches, output_file="smngn.txt"):
     """Create smngn.txt file with all matches.
 
@@ -520,7 +513,6 @@ def create_smngn_file(matches, output_file="smngn.txt"):
 
     print(f"{output_file} created with {len(matches)} matches")
     return output_file
-
 
 def extract_false_addresses_from_smngn(smngn_file):
     """Extract false addresses from smngn.txt file.
@@ -565,7 +557,6 @@ def extract_false_addresses_from_smngn(smngn_file):
     except Exception as e:
         print(f"Error reading {smngn_file}: {e}")
         return []
-
 
 def patch_false_addresses(libso_path, false_addresses):
     """ASM PATCHING: Patch false addresses (false -> true).
@@ -663,7 +654,6 @@ def patch_false_addresses(libso_path, false_addresses):
     print(f"ASM patch results saved: {result_file}")
 
     return results
-
 
 def process_pp_patch(apk_path, keywords_true=None, keywords_false=None,
                      enable_true_patch=False, enable_false_patch=True):
@@ -789,7 +779,6 @@ def process_pp_patch(apk_path, keywords_true=None, keywords_false=None,
 
     return apk_path, successful_patches
 
-
 def process_asm_patch(apk_path, apk_dir, out_dir=None):
     """Process asm folder based patching.
 
@@ -847,7 +836,6 @@ def process_asm_patch(apk_path, apk_dir, out_dir=None):
     except Exception as e:
         print(f"ASM patching error: {e}")
         return 0
-
 
 def process_flutter_patch_combined(apk_path):
     """Combined flutter patching using both pp.txt and asm folder.

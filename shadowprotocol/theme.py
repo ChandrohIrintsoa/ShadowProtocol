@@ -15,7 +15,6 @@ class Colors:
     DIM = '\033[2m'
     RESET = '\033[0m'
 
-
 class Box:
     """Unicode box drawing"""
     TL = '\u250c'
@@ -24,7 +23,6 @@ class Box:
     BR = '\u2518'
     H = '\u2500'
     V = '\u2502'
-
 
 class Theme:
     """Terminal theme configuration"""
@@ -71,7 +69,6 @@ class Theme:
     def stat(label: str, value: str) -> str:
         """Format stat line"""
         return f"{Colors.GREY}{label.ljust(20)}{Colors.RESET} {Colors.CYAN}{Colors.BOLD}{value}{Colors.RESET}"
-
 
 class Banner:
     """ASCII Banners - RK_Pairip style"""

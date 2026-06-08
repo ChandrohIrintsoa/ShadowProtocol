@@ -7,7 +7,6 @@ import os
 from pathlib import Path
 from typing import List, Optional
 
-
 class TargetValidator:
     """Validate .so file integrity"""
 
@@ -37,7 +36,6 @@ class TargetValidator:
     def is_writable(path: str) -> bool:
         """Check write permissions"""
         return os.access(path, os.W_OK)
-
 
 class TargetSelector:
     """Target selection with manual path entry and auto-detection"""

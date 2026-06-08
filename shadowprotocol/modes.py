@@ -3,12 +3,11 @@ Modes Module - Six processing modes with OOP pattern + Real Radare2 Integration
 Fuses v2 architecture with v1 functionality + Flutter/APK/Manifest/FindFunctions modes
 """
 
-import os
 import re
 import time
 import threading
 from abc import ABC, abstractmethod
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Tuple
 
 try:
     import r2pipe
@@ -22,7 +21,6 @@ from .results_writer import (
     write_function_results,
     write_generic_results,
 )
-
 
 class Radare2Handler:
     """Radare2 binary manipulation using r2pipe.
@@ -103,7 +101,6 @@ class Radare2Handler:
             finally:
                 self.pipe = None
 
-
 class BaseMode(ABC):
     """Base class for processing modes.
 
@@ -131,12 +128,10 @@ class BaseMode(ABC):
         Returns:
             True if completed successfully, False if stopped by user.
         """
-        pass
 
     @abstractmethod
     def get_label(self) -> str:
         """Return the short mode label (e.g. 'A', 'B', 'C')."""
-        pass
 
     def stop(self):
         """Signal the mode to stop gracefully."""
@@ -169,7 +164,6 @@ class BaseMode(ABC):
             self.progress(i + 1, len(steps), f"MODE {label}")
 
         return True
-
 
 class ModeA(BaseMode):
     """MODE A - Manual Assisted (Radare2 integration)
@@ -322,7 +316,6 @@ class ModeA(BaseMode):
             self.log("[W] MODE A: Patch could not be applied")
 
         return patched
-
 
 class ModeB(BaseMode):
     """MODE B - Auto-Patching (full binary scan)
@@ -504,7 +497,6 @@ class ModeB(BaseMode):
             self.log("[W] MODE B: No patches could be applied")
             return False
 
-
 class ModeC(BaseMode):
     """MODE C - Raw Radare2 (direct manipulation)
 
@@ -610,7 +602,6 @@ class ModeC(BaseMode):
             self.log("[W] MODE C: No results from Radare2")
             return False
 
-
 class ModeD(BaseMode):
     """MODE D - Flutter Patcher
 
@@ -679,7 +670,6 @@ class ModeD(BaseMode):
                 extra_metadata={"apk_path": self.binary, "error": str(e)})
             self.log(f"[D] Error logged: {result_file}")
             return False
-
 
 class ModeE(BaseMode):
     """MODE E - Find Functions
@@ -750,7 +740,6 @@ class ModeE(BaseMode):
             self.log(f"[!] MODE E: Function search error: {e}")
             return False
 
-
 class ModeF(BaseMode):
     """MODE F - Manifest Patcher
 
@@ -816,7 +805,6 @@ class ModeF(BaseMode):
         except Exception as e:
             self.log(f"[!] MODE F: Manifest patching error: {e}")
             return False
-
 
 def get_mode(mode_name: str, log_cb: Callable, progress_cb: Callable,
              binary_path: str = None, offset: str = None) -> BaseMode:

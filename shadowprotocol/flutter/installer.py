@@ -17,7 +17,6 @@ import shutil
 import subprocess
 import traceback
 
-
 def check_termux():
     """Check if running in Termux environment.
 
@@ -25,7 +24,6 @@ def check_termux():
         True if Termux is detected.
     """
     return os.path.exists('/data/data/com.termux/files/usr/bin')
-
 
 def install_packages():
     """Install required Termux and Python packages.
@@ -91,7 +89,6 @@ def install_packages():
         print(f"Package installation error: {e}")
         return False
 
-
 def install_blutter():
     """Install Blutter for Flutter analysis.
 
@@ -132,7 +129,6 @@ def install_blutter():
         print(f"Blutter installation error: {e}")
         return False
 
-
 def check_and_install_r2():
     """Check and install Radare2 if needed.
 
@@ -164,7 +160,6 @@ def check_and_install_r2():
     except Exception as e:
         print(f"Radare2 installation error: {e}")
         return False
-
 
 def check_and_install_pptool():
     """Check and install Pptool if needed.
@@ -212,7 +207,6 @@ def check_and_install_pptool():
     except Exception as e:
         print(f"Pptool installation error: {e}")
         return False
-
 
 def run_auto_installation():
     """Run full auto-installation for Termux environments.

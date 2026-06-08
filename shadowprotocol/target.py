@@ -10,7 +10,6 @@ import os
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-
 class TargetValidator:
     """Validateur d'integrite des fichiers ELF .so"""
 
@@ -40,7 +39,6 @@ class TargetValidator:
     def is_writable(path: str) -> bool:
         """Verifier les permissions d'ecriture."""
         return os.access(path, os.W_OK)
-
 
 class TargetSelector:
     """Selection de cible avec detection automatique et entree manuelle."""

@@ -17,7 +17,6 @@ try:
 except ImportError:
     HAS_R2PIPE = False
 
-
 class FunctionFinder:
     """Find ARM64 functions matching specific instruction patterns.
 
@@ -211,7 +210,6 @@ class FunctionFinder:
             'v3': self.find_v3()
         }
 
-
 def find_functions_v2(binary_path: str) -> List[Tuple[str, str]]:
     """Standalone function: find functions with x0-specific pattern.
 
@@ -223,7 +221,6 @@ def find_functions_v2(binary_path: str) -> List[Tuple[str, str]]:
     """
     finder = FunctionFinder(binary_path)
     return finder.find_v2()
-
 
 def find_functions_v3(binary_path: str) -> List[Tuple[str, str]]:
     """Standalone function: find functions with any-register pattern.

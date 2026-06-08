@@ -15,13 +15,11 @@ import time
 import shutil
 import subprocess
 
-
 MANIFEST_PATCHES = [
     (re.compile(r'<[^>]*\b(?:com\.pairip\.licensecheck|android\.vending\.CHECK_LICENSE)\b[^>]*/>'),
      '<!-- License check disabled -->', "CHECK_LICENSE"),
     ("extractNativeLibs", lambda content: content.replace('android:extractNativeLibs="false"', ''))
 ]
-
 
 def safe_regex_operation(pattern, replacement, content, description, file_path=""):
     """Safely apply a regex replacement to content.
@@ -50,7 +48,6 @@ def safe_regex_operation(pattern, replacement, content, description, file_path="
             error_message += f" - File: {os.path.basename(file_path)}"
         return False, content, error_message
 
-
 def safe_function_operation(func, content, description, file_path=""):
     """Safely apply a function transformation to content.
 
@@ -71,7 +68,6 @@ def safe_function_operation(func, content, description, file_path=""):
         if file_path:
             error_message += f" - File: {os.path.basename(file_path)}"
         return False, content, error_message
-
 
 def _run_command(command, verbose=True, exit_on_error=True):
     """Run a shell command.
@@ -105,7 +101,6 @@ def _run_command(command, verbose=True, exit_on_error=True):
             raise RuntimeError(f"Command error: {str(e)}")
         return ""
 
-
 def _decompile_apk(apk_path, output_dir, jar_file):
     """Decompile APK using APKEditor.
 
@@ -124,7 +119,6 @@ def _decompile_apk(apk_path, output_dir, jar_file):
     except RuntimeError:
         return False
     return os.path.exists(output_dir)
-
 
 def _build_apk(source_dir, output_apk, jar_file):
     """Build APK from decompiled directory using APKEditor.
@@ -148,7 +142,6 @@ def _build_apk(source_dir, output_apk, jar_file):
         print(f"APK successfully built ({file_size:.2f} MB)")
         return True
     return False
-
 
 def patch_android_manifest(decompile_dir):
     """Patch AndroidManifest.xml in a decompiled APK directory.
@@ -216,7 +209,6 @@ def patch_android_manifest(decompile_dir):
     except Exception as e:
         print(f"Failed to patch AndroidManifest.xml: {e}")
         return False
-
 
 def process_manifest_patcher(apk_path, jar_file):
     """Full manifest patcher workflow: decompile -> patch -> rebuild.

@@ -30,10 +30,8 @@ from .target import TargetSelector
 from .rituals import get_ritual, BaseRitual, RituelC
 from .grimoire import GrimoireUI, GrimoireANSI
 
-
 VALID_MODES = ('A', 'B', 'C', 'D', 'E', 'F')
 MODES_REQUIRING_TARGET = ('A', 'B', 'C', 'E')
-
 
 class ShadowProtocolApp:
     """Orchestrateur principal du Grimoire ShadowProtocol.
@@ -499,7 +497,6 @@ class ShadowProtocolApp:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         return f"logs/grimoire_{timestamp}.log"
 
-
 def main():
     """Point d'entree pour la commande shadowprotocol.
 
@@ -556,7 +553,6 @@ def main():
             sys.exit(1)
     else:
         app.run()
-
 
 if __name__ == "__main__":
     main()

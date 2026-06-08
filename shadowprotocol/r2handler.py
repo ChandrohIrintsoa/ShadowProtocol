@@ -8,15 +8,13 @@ Fallback subprocess si r2pipe indisponible.
 
 import re
 import shutil
-import subprocess
-from typing import Optional, Tuple, List
+from typing import Tuple, List
 
 try:
     import r2pipe
     HAS_R2PIPE = True
 except ImportError:
     HAS_R2PIPE = False
-
 
 class Radare2Handler:
     """Manipulation binaire via Radare2.

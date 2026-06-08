@@ -11,7 +11,6 @@ import threading
 from datetime import datetime
 from typing import Callable, Optional
 
-
 class LoggerHandler:
     """Journalisseur thread-safe avec callback et fichier persistant.
 

@@ -3,14 +3,11 @@ Validator - Cross-file validation & integrity checks
 + Dependency validation for system tools
 """
 
-import os
 import ast
 import sys
 import subprocess
-import shutil
 from pathlib import Path
-from typing import List, Dict, Tuple
-
+from typing import List, Tuple
 
 class CodeValidator:
     """Validate Python code integrity"""
@@ -60,7 +57,6 @@ class CodeValidator:
                 used.add(node.id)
 
         return [var for var in defined if var not in used and not var.startswith('_')]
-
 
 class ProjectValidator:
     """Validate entire project"""
@@ -136,7 +132,6 @@ class ProjectValidator:
         print(f"Total issues: {total}")
         print("="*80 + "\n")
 
-
 class DependencyValidator:
     """Validate system dependencies before running modes."""
 
@@ -166,7 +161,6 @@ class DependencyValidator:
     def check_r2pipe() -> Tuple[bool, str]:
         """Check r2pipe module"""
         try:
-            import r2pipe
             return (True, "r2pipe OK")
         except ImportError:
             return (False, "r2pipe missing - pip install r2pipe>=1.6.0")
@@ -219,17 +213,14 @@ class DependencyValidator:
         all_ok = all('OK' in m for m in messages)
         return (all_ok, messages)
 
-
 def validate_project(project_path: str = ".") -> bool:
     """Validate project integrity"""
     validator = ProjectValidator(project_path)
     return validator.validate_all()
 
-
 def validate_dependencies(required_modes: List[str] = None) -> Tuple[bool, List[str]]:
     """Validate system dependencies."""
     return DependencyValidator.validate_all(required_modes)
-
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--check-deps":

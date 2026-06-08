@@ -22,7 +22,6 @@ from .results_writer import (
     write_generic_results,
 )
 
-
 class BaseRitual(ABC):
     """Classe de base pour les rituels de transmutation.
 
@@ -46,17 +45,14 @@ class BaseRitual(ABC):
         Returns:
             True si complete avec succes, False si arrete ou echoue.
         """
-        pass
 
     @abstractmethod
     def get_label(self) -> str:
         """Retourner le label court du rituel (A, B, C, D, E, F)."""
-        pass
 
     @abstractmethod
     def get_name(self) -> str:
         """Retourner le nom complet du rituel."""
-        pass
 
     def stop(self):
         """Signaler l'arret du rituel."""
@@ -80,7 +76,6 @@ class BaseRitual(ABC):
             time.sleep(duration)
             self.progress(i + 1, len(steps), f"RITUEL {label}")
         return True
-
 
 class RituelA(BaseRitual):
     """Rituel A - L'Invocation Precise
@@ -237,7 +232,6 @@ class RituelA(BaseRitual):
 
         return ok
 
-
 class RituelB(BaseRitual):
     """Rituel B - Le Balayage d'Ame
 
@@ -344,7 +338,6 @@ class RituelB(BaseRitual):
         self.log(f"Bilan des ames: {patched} transmutees / {failed} echecs / {len(targets)} cibles")
 
         return patched > 0
-
 
 class RituelC(BaseRitual):
     """Rituel C - La Connexion Directe
@@ -479,7 +472,6 @@ class RituelC(BaseRitual):
                 pass
             return False
 
-
 class RituelD(BaseRitual):
     """Rituel D - Le Patcheur Flutter
 
@@ -551,7 +543,6 @@ class RituelD(BaseRitual):
                 extra_metadata={"apk_path": self.binary, "error": str(e)})
             self.log(f"[D] Erreur journalisee: {result_file}")
             return False
-
 
 class RituelE(BaseRitual):
     """Rituel E - La Quete des Fonctions
@@ -627,7 +618,6 @@ class RituelE(BaseRitual):
             self.log(f"Rituel E: Erreur recherche fonctions: {e}")
             return False
 
-
 class RituelF(BaseRitual):
     """Rituel F - Le Patcheur de Manifeste
 
@@ -697,7 +687,6 @@ class RituelF(BaseRitual):
         except Exception as e:
             self.log(f"Rituel F: Erreur patchage manifeste: {e}")
             return False
-
 
 def get_ritual(mode_name: str, log_cb: Callable, progress_cb: Callable,
                r2_handler: Optional[Radare2Handler] = None,

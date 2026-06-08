@@ -6,7 +6,6 @@ Supports modes A-F
 
 import sys
 import os
-import time
 import curses
 import select
 import threading
@@ -14,7 +13,6 @@ import termios
 import tty
 from collections import deque
 from typing import Optional, Callable
-
 
 class CursesUI:
     """Curses-based terminal UI with live logging, progress bar, and manual input.
@@ -389,7 +387,6 @@ class CursesUI:
             curses.endwin()
         except Exception:
             pass
-
 
 class ANSIUI:
     """Fallback ANSI terminal UI (if curses unavailable).

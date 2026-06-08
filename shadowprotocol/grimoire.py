@@ -15,16 +15,13 @@ Etendue pour supporter les 6 rituels (A-F).
 
 import sys
 import os
-import time
 import curses
 import select
 import threading
 import termios
 import tty
 from collections import deque
-from datetime import datetime
 from typing import Optional, Callable, List, Tuple
-
 
 class GrimoireUI:
     """Interface du Grimoire - 5 Chapitres fixes avec curses.
@@ -158,7 +155,6 @@ class GrimoireUI:
     def set_status(self, status: str):
         """Mettre a jour le statut (compatibilite v3)."""
         # Dans le Grimoire, le statut est affiche dans le mode_label
-        pass
 
     def set_target_info(self, name: str, arch: str, size: str,
                         r2_status: str, detected: List[str] = None):
@@ -508,7 +504,6 @@ class GrimoireUI:
         except Exception:
             pass
 
-
 class GrimoireANSI:
     """Interface du Grimoire en fallback ANSI (si curses indisponible).
 
@@ -598,7 +593,6 @@ class GrimoireANSI:
 
     def set_status(self, status: str):
         """Compatibilite v3."""
-        pass
 
     def set_target_info(self, name: str, arch: str, size: str,
                         r2_status: str, detected: List[str] = None):
