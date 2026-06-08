@@ -6,6 +6,7 @@ par variables d'environnement.
 """
 
 import os
+import tempfile
 from pathlib import Path
 
 class Config:
@@ -13,7 +14,7 @@ class Config:
 
     DEFAULTS = {
         'results_dir': Path('./results'),
-        'temp_dir': Path('/tmp/shadowprotocol'),
+        'temp_dir': Path(tempfile.gettempdir()) / 'shadowprotocol',
         'logs_dir': Path('./logs'),
         'apk_editor_jar': Path.home() / '.shadowprotocol' / 'APKEditor.jar',
         'radare2_timeout': 60,
@@ -38,4 +39,9 @@ class Config:
         for key in ['results_dir', 'temp_dir', 'logs_dir']:
             path = cls.get(key)
             if isinstance(path, Path):
-                path.mkdir(parents=True, exist_ok=True)
+                try:
+                    path.mkdir(parents=True, exist_ok=True, mode=0o755)
+                except (PermissionError, OSError):
+                    if key == 'temp_dir':
+                        path = Path.home() / '.cache' / 'shadowprotocol'
+                        path.mkdir(parents=True, exist_ok=True, mode=0o755)
