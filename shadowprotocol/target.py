@@ -1,21 +1,17 @@
 """
-ShadowProtocol - Selecteur de Cible (Multi-format)
+ShadowProtocol - Selecteur de Cible
 
-Detection, validation et selection de fichiers .so, .apk, etc.
-Support de l'entree manuelle, de la detection automatique,
-et de la selection interactive multi-cibles.
+Detection, validation et selection de fichiers .so.
+Support de l'entree manuelle et de la detection automatique
+des librairies natives Android dans le repertoire courant.
 """
 
 import os
-import zipfile
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-
 class TargetValidator:
-    """Validateur multi-format (.so ELF, .apk, binaires)."""
-
-    VALID_EXTENSIONS = {'.so', '.apk', '.bin', '.elf', '.a', '.o'}
+    """Validateur d'integrite des fichiers ELF .so"""
 
     @staticmethod
     def is_valid_so(path: str) -> bool:
@@ -28,35 +24,8 @@ class TargetValidator:
             return False
 
     @staticmethod
-    def is_valid_apk(path: str) -> bool:
-        """Verifier APK (ZIP avec AndroidManifest.xml)."""
-        try:
-            if not zipfile.is_zipfile(path):
-                return False
-            with zipfile.ZipFile(path, 'r') as z:
-                return 'AndroidManifest.xml' in z.namelist()
-        except Exception:
-            return False
-
-    @staticmethod
-    def detect_target_type(path: str) -> Optional[str]:
-        """Detecter le type de cible par magic bytes et extension."""
-        try:
-            with open(path, 'rb') as f:
-                magic = f.read(4)
-        except Exception:
-            return None
-
-        if magic == b'\x7fELF':
-            return 'ELF'
-        if magic[:2] == b'PK':
-            if TargetValidator.is_valid_apk(path):
-                return 'APK'
-        return None
-
-    @staticmethod
     def get_arch(path: str) -> Optional[str]:
-        """Determiner l'architecture du binaire (ELF only)."""
+        """Determiner l'architecture du binaire."""
         try:
             with open(path, 'rb') as f:
                 f.seek(0x12)
@@ -71,64 +40,27 @@ class TargetValidator:
         """Verifier les permissions d'ecriture."""
         return os.access(path, os.W_OK)
 
-
 class TargetSelector:
-    """Selection de cible avec detection automatique et entree manuelle.
-
-    Supporte .so, .apk et autres formats binaires.
-    Detection recursive, selection interactive si cibles multiples.
-    """
+    """Selection de cible avec detection automatique et entree manuelle."""
 
     def __init__(self, start_path: str = "."):
         self.start_path = Path(start_path)
         self.validator = TargetValidator()
 
-    def find_targets(self, recursive: bool = True,
-                     target_types: Optional[List[str]] = None) -> List[Tuple[str, str]]:
-        """Trouver toutes les cibles valides (.so, .apk, etc).
-
-        Args:
-            recursive: Recherche recursive dans les sous-repertoires.
-            target_types: Types a chercher ['so', 'apk']. None = tous.
-
-        Returns:
-            Liste de tuples (chemin, type).
-        """
-        if target_types is None:
-            target_types = ['so', 'apk']
-
+    def find_targets(self, recursive: bool = True) -> List[str]:
+        """Trouver tous les fichiers .so valides."""
         targets = []
-        patterns = [f"*.{ext}" for ext in target_types]
-
-        for pattern in patterns:
-            glob_fn = self.start_path.rglob if recursive else self.start_path.glob
-            for path in glob_fn(pattern):
-                if path.is_file():
-                    target_type = self.validator.detect_target_type(str(path))
-                    if target_type:
-                        targets.append((str(path), target_type))
-
-        return sorted(targets, key=lambda x: x[0])
-
-    def find_so_targets(self, recursive: bool = True) -> List[str]:
-        """Trouver tous les fichiers .so valides (compatibilite).
-
-        Returns:
-            Liste de chemins .so tries.
-        """
-        targets = self.find_targets(recursive=recursive, target_types=['so'])
-        return [t[0] for t in targets]
+        pattern = self.start_path.rglob("*.so") if recursive else self.start_path.glob("*.so")
+        for path in pattern:
+            if self.validator.is_valid_so(str(path)):
+                targets.append(str(path))
+        return sorted(targets)
 
     def validate_manual_path(self, path: str) -> Optional[str]:
         """Valider un chemin de fichier entre manuellement.
 
-        Accepte:
-        - Chemins relatifs, absolus, ~, variables d'environnement
-        - Extensions: .so, .apk, .bin, .elf, etc
-
-        Rejette:
-        - Fichiers inexistants, liens symboliques, repertoires
-        - Fichiers illisibles, formats non reconnus
+        Accepte tout chemin valide, verifie l'existence et la
+        signature ELF. Rejette les liens symboliques et repertoires.
         """
         if not path or not path.strip():
             return None
@@ -148,11 +80,8 @@ class TargetSelector:
             return None
         if not os.access(abs_path, os.R_OK):
             return None
-
-        target_type = self.validator.detect_target_type(abs_path)
-        if not target_type:
-            if not self.validator.is_valid_so(abs_path):
-                return None
+        if not self.validator.is_valid_so(abs_path):
+            return None
 
         return abs_path
 
@@ -163,14 +92,8 @@ class TargetSelector:
             (nom, arch, taille_formatee, rw)
         """
         name = os.path.basename(path)
-        target_type = self.validator.detect_target_type(path) or "Inconnu"
+        arch = self.validator.get_arch(path) or "Inconnu"
         writable = "Oui" if self.validator.is_writable(path) else "Non"
-
-        if target_type == "ELF":
-            arch = self.validator.get_arch(path) or "Inconnu"
-        else:
-            arch = target_type
-
         try:
             size_bytes = os.path.getsize(path)
             if size_bytes >= 1024 * 1024:
@@ -183,7 +106,7 @@ class TargetSelector:
             size = "N/A"
         return name, arch, size, writable
 
-    def select_interactive(self, targets: List[Tuple[str, str]]) -> Optional[str]:
+    def select_interactive(self, targets: List[str]) -> Optional[str]:
         """Selection interactive (fallback, NON TUI-safe).
 
         WARNING: Utilise print() et input() qui conflictent
@@ -193,8 +116,8 @@ class TargetSelector:
         if not targets:
             return None
 
-        for i, (target, target_type) in enumerate(targets, 1):
-            arch = self.validator.get_arch(target) if target_type == "ELF" else target_type
+        for i, target in enumerate(targets, 1):
+            arch = self.validator.get_arch(target)
             writable = "Oui" if self.validator.is_writable(target) else "Non"
             try:
                 size_bytes = os.path.getsize(target)
@@ -203,12 +126,12 @@ class TargetSelector:
                 size = "N/A"
 
             print(f"[{i}] {target}")
-            print(f"    Type: {target_type} | Arch: {arch} | RW: {writable} | Taille: {size}")
+            print(f"    Arch: {arch} | RW: {writable} | Taille: {size}")
 
         try:
             choice = int(input(f"\nSelectionner cible [1-{len(targets)}]: "))
             if 1 <= choice <= len(targets):
-                return targets[choice - 1][0]
+                return targets[choice - 1]
         except (ValueError, IndexError):
             pass
 

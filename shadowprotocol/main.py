@@ -4,14 +4,13 @@ Le Grimoire de Transmutation Binaire
 
 Orchestrateur principal de l'application:
 - Initialisation du TUI (curses avec fallback ANSI)
-- Gestion des entrees utilisateur
+- Gestion des entrees utilisateur (1=cible, 2=sigil, A-F=rituels, Q=quitter)
 - Execution des rituels dans des threads separes
 - Selection de cible binaire (chemin manuel + detection auto)
 - Collecte d'offset pour Rituel A
-- Dictionnaire de mots-cles pour Rituel A/B
-- Effacement radical des cibles et cache/log
 - Sous-menu interactif pour Rituel C (pouvoirs Radare2)
 - Arret gracieux avec nettoyage
+- Adaptation au redimensionnement du terminal
 """
 
 import sys
@@ -29,16 +28,23 @@ from .logger import LoggerHandler
 from .r2handler import Radare2Handler
 from .target import TargetSelector
 from .rituals import get_ritual, BaseRitual, RituelC
-from .keyword_analyzer import KeywordDictionary
-from .file_manager import FileManager
 from .grimoire import GrimoireUI, GrimoireANSI
 
 VALID_MODES = ('A', 'B', 'C', 'D', 'E', 'F')
 MODES_REQUIRING_TARGET = ('A', 'B', 'C', 'E')
 
-
 class ShadowProtocolApp:
-    """Orchestrateur principal du Grimoire ShadowProtocol."""
+    """Orchestrateur principal du Grimoire ShadowProtocol.
+
+    Gere le cycle de vie de l'application:
+    - Initialisation du TUI (curses avec fallback ANSI)
+    - Entrees utilisateur (1/2/a-f/q + sous-menu Rituel C)
+    - Execution des rituels dans des threads daemon
+    - Selection de cible binaire
+    - Collecte d'offset pour Rituel A
+    - Arret gracieux avec nettoyage
+    - Adaptation au redimensionnement terminal
+    """
 
     def __init__(self):
         self.ui = None
@@ -58,14 +64,11 @@ class ShadowProtocolApp:
         # Detection automatique des .so
         self._auto_detected: list = []
 
-        # Dictionnaire de mots-cles
-        self.keyword_dict: Optional[KeywordDictionary] = None
-
         # Handlers de signaux
         signal.signal(signal.SIGINT, self._handle_signal)
         signal.signal(signal.SIGTERM, self._handle_signal)
 
-    def _handle_signal(self, signum, frame):
+    def _handle_signal(self, _signum, _frame):
         """Gerer les signaux systeme (SIGINT, SIGTERM)."""
         self.stop_requested = True
         self.running = False
@@ -78,10 +81,8 @@ class ShadowProtocolApp:
         self.logger.info("")
         self.logger.info("[1] Entrer le chemin de l'esprit cible (.so / .apk)")
         self.logger.info("[2] Entrer le sigil hex (offset pptool, pour Rituel A)")
-        self.logger.info("[3] Charger un dictionnaire de mots-cles (.txt)")
-        self.logger.info("[4] Effacer radicalement les cibles et cache/log")
-        self.logger.info("[A] Rituel A - L'Invocation Precise (+ dictionnaire)")
-        self.logger.info("[B] Rituel B - Le Balayage d'Ame (+ dictionnaire)")
+        self.logger.info("[A] Rituel A - L'Invocation Precise")
+        self.logger.info("[B] Rituel B - Le Balayage d'Ame")
         self.logger.info("[C] Rituel C - La Connexion Directe (canal R2 brut)")
         self.logger.info("[D] Rituel D - Le Patcheur Flutter")
         self.logger.info("[E] Rituel E - La Quete des Fonctions")
@@ -91,7 +92,7 @@ class ShadowProtocolApp:
 
     def _auto_detect_targets(self):
         """Detecter automatiquement les fichiers .so a l'ouverture."""
-        self._auto_detected = self.target_selector.find_so_targets(recursive=True)
+        self._auto_detected = self.target_selector.find_targets(recursive=True)
         if self._auto_detected:
             self.logger.info(f"{len(self._auto_detected)} esprit(s) detecte(s) aux alentours")
             for t in self._auto_detected:
@@ -115,18 +116,23 @@ class ShadowProtocolApp:
         return True
 
     def _start_ritual(self, mode_name: str):
-        """Demarrer un rituel dans un thread daemon."""
+        """Demarrer un rituel dans un thread daemon.
+
+        Args:
+            mode_name: 'A', 'B', 'C', 'D', 'E', ou 'F'
+        """
         if mode_name.upper() in MODES_REQUIRING_TARGET and not self.current_target:
             self.logger.warning("Selectionnez un esprit cible d'abord (option [1])")
             return
 
-        if mode_name.upper() == 'A' and not self.current_offset and not self.keyword_dict:
-            self.logger.warning("Fournissez un sigil hex (option [2]) ou un dictionnaire (option [3])")
+        if mode_name.upper() == 'A' and not self.current_offset:
+            self.logger.warning("Fournissez un sigil hex d'abord (option [2])")
             return
 
         try:
             self.ui.clear_transmutations()
 
+            # Ouvrir un nouveau handler r2 pour les rituels A/B/C/E
             if mode_name.upper() in ('A', 'B', 'C', 'E'):
                 self._open_r2(self.current_target)
 
@@ -136,8 +142,7 @@ class ShadowProtocolApp:
                 self.ui.set_progress,
                 r2_handler=self.r2_handler,
                 offset=self.current_offset if mode_name.upper() == 'A' else None,
-                binary_path=self.current_target if mode_name.upper() in ('D', 'E', 'F') else None,
-                keyword_dict=self.keyword_dict if mode_name.upper() in ('A', 'B') else None
+                binary_path=self.current_target if mode_name.upper() in ('D', 'E', 'F') else None
             )
             self.current_ritual = ritual
             self.ui.set_mode(f"RITUEL {mode_name.upper()}")
@@ -154,6 +159,7 @@ class ShadowProtocolApp:
         """Callback de log qui detecte et enregistre les transmutations."""
         self.logger.info(message)
 
+        # Detecter les lignes de resultat de patch dans les logs
         match = re.search(
             r'(0x[0-9a-fA-F]+)\s*\|\s*(add\s+x\d+,\s*x\d+,\s*0x30)\s*->\s*(0x20)\s*(OK|ECHEC)',
             message
@@ -196,6 +202,7 @@ class ShadowProtocolApp:
             self.logger.info(f"  Nom: {name} | Nature: {arch} | Poids: {size} | RW: {rw}")
             self._open_r2(validated)
         else:
+            # Essayer aussi comme chemin simple meme si pas .so valide (pour APK)
             if os.path.isfile(path):
                 self.current_target = os.path.abspath(path)
                 self.logger.success(f"Fichier selectionne: {self.current_target}")
@@ -223,81 +230,20 @@ class ShadowProtocolApp:
             self.logger.error(f"Format de sigil invalide: {offset}")
             self.logger.info("Format attendu: 0x... (ex: 0x123456)")
 
-    def _request_dictionary(self):
-        """Demander le chemin du dictionnaire de mots-cles."""
-        if self.ui.is_input_active:
-            return
-        self.logger.info("Entrez le chemin vers le fichier dictionnaire (.txt):")
-        self.logger.info("Format: mots-cles separes par virgule ou un par ligne")
-        self.ui.enter_input_mode("Dictionnaire: ", self._on_dictionary_entered)
-
-    def _on_dictionary_entered(self, path: str):
-        """Callback quand l'utilisateur soumet un chemin de dictionnaire."""
-        expanded = os.path.expanduser(path)
-        expanded = os.path.expandvars(expanded)
-
-        if not os.path.isfile(expanded):
-            self.logger.error(f"Fichier non trouve: {path}")
-            return
-
-        kw_dict = KeywordDictionary(expanded)
-        if kw_dict.is_loaded():
-            self.keyword_dict = kw_dict
-            self.logger.success(f"Dictionnaire charge: {len(kw_dict)} mot(s)-cle(s)")
-            for kw in kw_dict.get_keywords():
-                self.logger.info(f"  -> {kw}")
-        else:
-            self.logger.error("Echec du chargement du dictionnaire")
-
-    def _request_manual_keywords(self):
-        """Ajouter des mots-cles manuellement."""
-        if self.ui.is_input_active:
-            return
-        self.logger.info("Entrez les mots-cles (separes par virgule ou espace):")
-        self.logger.info('Exemple: "mot1", "mot2" ou mot1, mot2')
-        self.ui.enter_input_mode("Mots-cles: ", self._on_manual_keywords_entered)
-
-    def _on_manual_keywords_entered(self, input_str: str):
-        """Callback quand l'utilisateur ajoute des mots-cles manuellement."""
-        if not self.keyword_dict:
-            self.keyword_dict = KeywordDictionary()
-
-        added = self.keyword_dict.add_keywords_from_input(input_str)
-        self.logger.success(f"{added} mot(s)-cle(s) ajoute(s) (total: {len(self.keyword_dict)})")
-
-    def _radical_erase(self):
-        """Effacer radicalement les cibles et le cache/log."""
-        if not self.current_target:
-            self.logger.warning("Aucune cible selectionnee a effacer")
-            return
-
-        fm = FileManager(self.current_target)
-        self.logger.warning(f"EFFACEMENT RADICAL de: {self.current_target}")
-        self.logger.info("Suppression des cibles et cache/log...")
-
-        deleted, errors = fm.radical_erase(keep_skull=True)
-
-        self.logger.success(f"{deleted} element(s) supprime(s), {errors} erreur(s)")
-
-        # Nettoyer aussi les logs generaux
-        log_count = fm.cleanup_logs()
-        if log_count > 0:
-            self.logger.info(f"{log_count} fichier(s) log supprime(s)")
-
-        # Reinitialiser
-        self.current_target = None
-        self.current_offset = None
-        self.r2_handler = None
-        self.ui.set_target_info("---", "---", "---", "Ferme", [])
-
     def _handle_c_menu_choice(self, ch: str):
-        """Gerer les choix du sous-menu Rituel C."""
+        """Gerer les choix du sous-menu Rituel C.
+
+        Les choix 1-9 sont des pouvoirs Radare2.
+        0 = quitter le canal.
+        Les choix necessitant des parametres ouvrent un mode saisie.
+        """
         if ch == '0':
             self.logger.info("Canal R2 ferme")
             self.ui.c_menu_active = False
             self.ui.set_mode("EN VEILLE")
             return
 
+        # Les choix qui necessitent des parametres
         param_choices = {
             '1': ("Adresse & ASM (ex: s 0x1000; wa add x0,x22,0x20): ", "seek_write"),
             '3': ("Adresse + nb lignes (ex: pd 20 @ 0x1000): ", "pd"),
@@ -314,6 +260,7 @@ class ShadowProtocolApp:
         }
 
         if ch in no_param_choices:
+            # Executer directement sans parametre
             self._execute_c_ritual(ch, no_param_choices[ch])
         elif ch in param_choices:
             prompt, _ = param_choices[ch]
@@ -346,9 +293,17 @@ class ShadowProtocolApp:
         self.ritual_thread.start()
 
     def handle_input(self, ch: str) -> bool:
-        """Gerer les entrees clavier."""
+        """Gerer les entrees clavier.
+
+        Args:
+            ch: Touche pressee (minuscule)
+
+        Returns:
+            False si l'application doit quitter, True sinon.
+        """
+        # Si le sous-menu Rituel C est actif
         if hasattr(self.ui, '_c_menu_active') and self.ui.c_menu_active:
-            if ch == '\x1b':
+            if ch == '\x1b':  # Escape
                 self.ui.c_menu_active = False
                 self.logger.info("Retour au menu principal")
             elif ch in ('0', '1', '2', '3', '4', '5', '6', '7', '8', '9'):
@@ -357,6 +312,7 @@ class ShadowProtocolApp:
                 self.logger.warning(f"Touche inconnue en mode C: {ch}")
             return True
 
+        # Mode normal
         if ch == 'q' or ch == '\x03':
             self.logger.info("Fermeture du Grimoire demandee...")
             return False
@@ -364,11 +320,6 @@ class ShadowProtocolApp:
             self._request_target_path()
         elif ch == '2':
             self._request_offset()
-        elif ch == '3':
-            # Menu dictionnaire
-            self._request_dictionary()
-        elif ch == '4':
-            self._radical_erase()
         elif ch == 'a':
             if self.ritual_thread and self.ritual_thread.is_alive():
                 self.logger.warning("Un rituel est deja en cours")
@@ -450,6 +401,7 @@ class ShadowProtocolApp:
         self.display_welcome()
         self._auto_detect_targets()
 
+        # Verification des dependances
         if not Radare2Handler.is_available():
             self.logger.warning("Radare2 non trouve - installez: apt install radare2")
         if not Radare2Handler.check_r2pipe():
@@ -490,9 +442,17 @@ class ShadowProtocolApp:
                 pass
 
     def run(self, mode: Optional[str] = None):
-        """Lancer l'application."""
+        """Lancer l'application.
+
+        Tente d'utiliser curses pour la meilleure experience terminal.
+        Fallback vers ANSI si curses indisponible.
+
+        Args:
+            mode: Mode a executer automatiquement ('A'-'F').
+        """
         self._requested_mode = mode
 
+        # Verification minimale des dependances
         if not Radare2Handler.is_available():
             print("[!] Radare2 (r2) non trouve sur le systeme")
             print("    Installez: sudo apt install radare2")
@@ -537,14 +497,27 @@ class ShadowProtocolApp:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         return f"logs/grimoire_{timestamp}.log"
 
-
 def main():
-    """Point d'entree pour la commande shadowprotocol."""
+    """Point d'entree pour la commande shadowprotocol.
+
+    Usage:
+        shadowprotocol          - Mode interactif
+        shadowprotocol A        - Rituel A directement
+        shadowprotocol B        - Rituel B directement
+        shadowprotocol C        - Rituel C directement
+        shadowprotocol D        - Rituel D directement
+        shadowprotocol E        - Rituel E directement
+        shadowprotocol F        - Rituel F directement
+        shadowprotocol --check  - Verifier les dependances
+        shadowprotocol --check-deps - Verifier les dependances (v3 compat)
+        shadowprotocol --dry-run A  - Dry-run Rituel A
+    """
     app = ShadowProtocolApp()
 
     if len(sys.argv) > 1:
         arg = sys.argv[1]
 
+        # --check / --check-deps: validate dependencies only
         if arg in ('--check', '--check-deps'):
             modes = sys.argv[2:] if len(sys.argv) > 2 else []
             from .validator import DependencyValidator
@@ -558,6 +531,7 @@ def main():
                 print("\n[+] Toutes les dependances sont satisfaites.")
                 sys.exit(0)
 
+        # --dry-run: preview mode without applying changes
         if arg == '--dry-run':
             mode_arg = sys.argv[2].upper() if len(sys.argv) > 2 else None
             if mode_arg and mode_arg in VALID_MODES:
@@ -579,7 +553,6 @@ def main():
             sys.exit(1)
     else:
         app.run()
-
 
 if __name__ == "__main__":
     main()

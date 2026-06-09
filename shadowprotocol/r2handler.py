@@ -16,7 +16,6 @@ try:
 except ImportError:
     HAS_R2PIPE = False
 
-
 class Radare2Handler:
     """Manipulation binaire via Radare2.
 
@@ -90,14 +89,29 @@ class Radare2Handler:
         return (False, "Impossible d'analyser le binaire")
 
     def seek(self, offset: str) -> Tuple[bool, str]:
-        """Se positionner a un offset donne."""
+        """Se positionner a un offset donne.
+
+        Args:
+            offset: Offset hexadecimal (ex: 0x123456)
+
+        Returns:
+            (succes, message)
+        """
         ok, out, err = self.execute(f"s {offset}")
         if not ok:
             return (False, f"Erreur seek: {err}")
         return (True, f"Positionne a {offset}")
 
     def disasm_at(self, offset: str, count: int = 5) -> Tuple[bool, str]:
-        """Desassembler a un offset donne."""
+        """Desassembler a un offset donne.
+
+        Args:
+            offset: Adresse de depart.
+            count: Nombre d'instructions.
+
+        Returns:
+            (succes, desassemblage)
+        """
         self.execute(f"s {offset}")
         ok, disasm, err = self.execute(f"pd {count}")
         if not ok:
@@ -152,7 +166,7 @@ class Radare2Handler:
         if ok2 and new_val in verify:
             return (True, f"Patch verifie: add {register},{src_reg},{new_val}")
         elif ok2:
-            return (False, "Patch applique mais verification echouee")
+            return (False, f"Patch applique mais verification echouee")
         return (False, "Impossible de verifier le patch")
 
     def scan_all_pattern(self, log_callback=None,
@@ -181,10 +195,12 @@ class Radare2Handler:
                     log_callback("Analyse aaa echouee, tentative e aF...")
                 self.execute("e aF")
 
+            # Recuperer la liste des fonctions
             ok, func_list, err = self.execute("afl")
             if not ok or not func_list.strip():
                 if log_callback:
                     log_callback(f"Liste fonctions indisponible: {err}")
+                # Fallback: recherche textuelle globale
                 ok2, search_out, _ = self.execute("/ add x0, x22, 0x30")
                 if ok2 and search_out.strip():
                     for line in search_out.split('\n'):

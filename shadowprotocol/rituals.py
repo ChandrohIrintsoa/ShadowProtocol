@@ -2,9 +2,7 @@
 ShadowProtocol - Les 6 Rituels (Modes A, B, C, D, E, F)
 
 Rituel A : L'Invocation Precise - Patchage par offset via pptool
-           + Support dictionnaire de mots-cles avec analyse profonde
 Rituel B : Le Balayage d'Ame - Scan automatique et patch global
-           + Support dictionnaire de mots-cles pour ciblage precis
 Rituel C : La Connexion Directe - Canal brut avec Radare2
 Rituel D : Le Patcheur Flutter - APK merge, blutter, PP/ASM patching
 Rituel E : La Quete des Fonctions - ARM64 pattern search (v2/v3)
@@ -14,18 +12,15 @@ Rituel F : Le Patcheur de Manifeste - License check removal, extractNativeLibs
 import re
 import threading
 from abc import ABC, abstractmethod
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 from .r2handler import Radare2Handler
-from .keyword_analyzer import KeywordDictionary, BinaryAnalyzer
-from .file_manager import FileManager
 from .results_writer import (
     write_offset_results,
     write_patch_results,
     write_function_results,
     write_generic_results,
 )
-
 
 class BaseRitual(ABC):
     """Classe de base pour les rituels de transmutation.
@@ -67,21 +62,20 @@ class BaseRitual(ABC):
         """Verifier si un arret a ete demande."""
         return self._stop_event.is_set()
 
-    def _move_to_skull(self, binary_path: str) -> Optional[str]:
-        """Deplacer le fichier traite vers le dossier ☠️.
+    def _run_steps(self, label: str, steps: List[Tuple[str, float]]) -> bool:
+        """Executer une liste d'etapes avec progression.
 
-        Args:
-            binary_path: Chemin du fichier a deplacer
-
-        Returns:
-            Chemin dans ☠️, ou None si erreur
+        Chaque etape est un tuple (nom, duree_secondes).
         """
-        fm = FileManager(binary_path)
-        result = fm.move_to_skull(binary_path)
-        if result:
-            self.log(f"Fichier deplace vers ☠️: {result}")
-        return result
-
+        for i, (step_name, duration) in enumerate(steps):
+            if self.is_stopping():
+                self.log(f"[!] RITUEL {label}: Arret detecte - nettoyage...")
+                return False
+            self.log(f"[{label}] {step_name}...")
+            import time
+            time.sleep(duration)
+            self.progress(i + 1, len(steps), f"RITUEL {label}")
+        return True
 
 class RituelA(BaseRitual):
     """Rituel A - L'Invocation Precise
@@ -90,127 +84,22 @@ class RituelA(BaseRitual):
     Le grimoire scrute l'adresse, cherche l'incantation
     'add x?, x?, 0x30', et la reecrit en 0x20 si la rune est valide.
     Verification post-patch obligatoire par relecture du desassemblage.
-
-    Support optionnel du dictionnaire de mots-cles:
-    - Le dictionnaire indique l'offset
-    - Le systeme fait une analyse profonde du binaire AVANT de toucher
-    - Meme si la cible est trouvee a 0x20, le systeme ne patch pas aveuglement
-    - Scan et analyse complete avant chaque modification
     """
 
     def __init__(self, log_callback: Callable, progress_callback: Callable,
                  r2_handler: Optional[Radare2Handler] = None,
-                 offset: Optional[str] = None,
-                 keyword_dict: Optional[KeywordDictionary] = None):
+                 offset: Optional[str] = None):
         super().__init__(log_callback, progress_callback, r2_handler)
         self.offset = offset
-        self.keyword_dict = keyword_dict
         self._result = None
 
     def get_label(self) -> str:
+        """Return the ritual label identifier."""
         return "A"
 
     def get_name(self) -> str:
+        """Return the ritual name."""
         return "L'Invocation Precise"
-
-    def _resolve_offset_with_dictionary(self) -> Optional[str]:
-        """Resoudre l'offset en utilisant le dictionnaire de mots-cles.
-
-        Le dictionnaire sert a indiquer l'offset. Le systeme fait une
-        analyse profonde du binaire pour trouver la bonne voie.
-        Il ne patch pas aveuglement mais fait un scan et analyse
-        complete avant de toucher a quoi que ce soit.
-
-        Returns:
-            Offset resolu, ou None si non trouve/unsafe
-        """
-        if not self.keyword_dict or not self.keyword_dict.is_loaded():
-            return self.offset
-
-        if not self.r2:
-            self.log("Aucun binaire charge pour l'analyse par dictionnaire")
-            return self.offset
-
-        binary_path = self.r2.binary_path
-        analyzer = BinaryAnalyzer(binary_path)
-
-        if not analyzer.is_loaded():
-            self.log("Impossible de charger le binaire pour l'analyse")
-            return self.offset
-
-        keywords = self.keyword_dict.get_keywords()
-        self.log(f"Analyse par dictionnaire: {len(keywords)} mot(s)-cle(s)")
-
-        # Phase 1: Scan profond avec chaque mot-cle
-        scan_results = analyzer.deep_scan(keywords)
-
-        safe_candidates = []
-        for keyword, patches in scan_results.items():
-            self.log(f"  Mot-cle '{keyword}': {len(patches)} occurrence(s)")
-            for patch_info in patches:
-                offset_hex = patch_info.get('offset_hex', hex(patch_info.get('offset', 0)))
-                status = patch_info.get('status', 'UNKNOWN')
-                self.log(f"    {offset_hex} -> {status}")
-
-                if status == 'SAFE':
-                    safe_candidates.append({
-                        'keyword': keyword,
-                        'offset': patch_info['offset'],
-                        'offset_hex': offset_hex,
-                        'analysis': patch_info.get('analysis', {})
-                    })
-
-        if not safe_candidates:
-            self.log("Aucun candidat sur trouve par le dictionnaire")
-            return self.offset
-
-        # Phase 2: Si un offset manuel existe, verifier sa coherence avec le dictionnaire
-        if self.offset:
-            try:
-                manual_offset_int = int(self.offset, 16)
-                # Verifier que l'offset manuel correspond a un candidat sur
-                for candidate in safe_candidates:
-                    if candidate['offset'] == manual_offset_int:
-                        self.log(f"Offset {self.offset} confirme par dictionnaire ('{candidate['keyword']}')")
-                        # Verifier la securite du patch a cet offset
-                        if analyzer.verify_patch_safety(manual_offset_int, 4):
-                            self.log("Verification de securite: OK - patch autorise")
-                            return self.offset
-                        else:
-                            self.log("Verification de securite: ECHEC - offset non sur")
-                            return None
-
-                self.log(f"Offset {self.offset} non confirme par dictionnaire - verification supplementaire")
-                # L'offset manuel n'est pas dans le dictionnaire, mais on verifie quand meme
-                if analyzer.verify_patch_safety(manual_offset_int, 4):
-                    self.log("Offset manuel passe la verification de securite")
-                    return self.offset
-                return None
-            except (ValueError, TypeError):
-                pass
-
-        # Phase 3: Utiliser le premier candidat sur du dictionnaire
-        if len(safe_candidates) == 1:
-            candidate = safe_candidates[0]
-            resolved = candidate['offset_hex']
-            self.log(f"Candidat unique identifie: {resolved} (mot-cle: '{candidate['keyword']}')")
-            if analyzer.verify_patch_safety(candidate['offset'], 4):
-                self.log("Verification de securite: OK - patch autorise")
-                return resolved
-            else:
-                self.log("Verification de securite: ECHEC - candidat non sur")
-                return None
-
-        # Phase 4: Cibles multiples - prendre le premier sur
-        self.log(f"{len(safe_candidates)} candidats surs trouves - selection du premier")
-        candidate = safe_candidates[0]
-        resolved = candidate['offset_hex']
-        self.log(f"Selectionne: {resolved} (mot-cle: '{candidate['keyword']}')")
-        if analyzer.verify_patch_safety(candidate['offset'], 4):
-            self.log("Verification de securite: OK")
-            return resolved
-        self.log("Verification de securite: ECHEC")
-        return None
 
     def validate_offset(self) -> Tuple[bool, str]:
         """Valider le format et l'existence du pattern a l'offset."""
@@ -251,7 +140,7 @@ class RituelA(BaseRitual):
             return (False, "Erreur d'ouverture en ecriture")
 
         try:
-            # Re-verifier le pattern avant patch (ne pas patcher aveuglement)
+            # Re-verifier le pattern avant patch
             found, instr, register = self.r2.check_pattern_at(self.offset)
             if not found:
                 self.r2.close()
@@ -269,6 +158,7 @@ class RituelA(BaseRitual):
 
             self.log(f"Transmutation en cours: {instr} -> 0x20")
 
+            # Appliquer le patch
             ok, msg = self.r2.patch_instruction(
                 self.offset, reg_dest, reg_src, "0x20"
             )
@@ -297,20 +187,6 @@ class RituelA(BaseRitual):
         if not self.r2:
             self.log("Aucun esprit cible selectionne (option [1])")
             return False
-
-        # Resoudre l'offset avec le dictionnaire si disponible
-        if self.keyword_dict and self.keyword_dict.is_loaded():
-            self.log("Resolution de l'offset via dictionnaire de mots-cles...")
-            resolved_offset = self._resolve_offset_with_dictionary()
-            if resolved_offset is None:
-                self.log("Dictionnaire: aucun offset sur identifie - arret")
-                return False
-            if resolved_offset != self.offset:
-                self.log(f"Offset resolu: {resolved_offset} (remplace {self.offset})")
-                self.offset = resolved_offset
-            else:
-                self.log(f"Offset confirme: {self.offset}")
-
         if not self.offset:
             self.log("Aucun sigil hex fourni (option [2])")
             return False
@@ -325,6 +201,7 @@ class RituelA(BaseRitual):
 
         valid, msg = self.validate_offset()
 
+        # Persister le resultat de validation
         offset_data = [{"offset": self.offset, "validated": valid, "pattern": "0x30"}]
         result_file = write_offset_results(offset_data, self.get_label(),
                                            extra_metadata={"binary": self.r2.binary_path if self.r2 else ""})
@@ -344,14 +221,11 @@ class RituelA(BaseRitual):
 
         ok, msg = self.patch()
 
+        # Persister le resultat du patch
         patch_data = {self.offset: {"patched": ok, "instruction": "0x30->0x20"}}
         result_file = write_patch_results(patch_data, self.get_label(),
                                           extra_metadata={"binary": self.r2.binary_path if self.r2 else ""})
         self.log(f"[A] Resultats patch sauvegardes: {result_file}")
-
-        # Deplacer le fichier traite vers ☠️
-        if ok and self.r2:
-            self._move_to_skull(self.r2.binary_path)
 
         if ok:
             self.log("Rituel A: Invocation terminee avec succes")
@@ -360,81 +234,28 @@ class RituelA(BaseRitual):
 
         return ok
 
-
 class RituelB(BaseRitual):
     """Rituel B - Le Balayage d'Ame
 
     Le grimoire sonde l'integralite de l'esprit de pierre,
     decouvre TOUTES les incantations 0x30 qui s'y cachent,
     et les transmute collectivement en 0x20.
-
-    Support optionnel du dictionnaire de mots-cles:
-    - Permet de cibler precisement les zones a patcher
-    - Analyse profonde avant chaque patch
-    - Ne patch pas aveuglement meme si la cible est trouvee
+    Bilan final des ames touchees.
     """
 
     def __init__(self, log_callback: Callable, progress_callback: Callable,
-                 r2_handler: Optional[Radare2Handler] = None,
-                 keyword_dict: Optional[KeywordDictionary] = None):
+                 r2_handler: Optional[Radare2Handler] = None):
         super().__init__(log_callback, progress_callback, r2_handler)
-        self.keyword_dict = keyword_dict
         self.targets: List[Tuple[str, str, str, str]] = []
         self._results = None
 
     def get_label(self) -> str:
+        """Return the ritual label identifier."""
         return "B"
 
     def get_name(self) -> str:
+        """Return the ritual name."""
         return "Le Balayage d'Ame"
-
-    def _pre_scan_with_dictionary(self) -> List[Dict]:
-        """Pre-scan avec le dictionnaire de mots-cles pour un ciblage precis.
-
-        Le dictionnaire indique les offsets potentiels. Le systeme fait
-        une analyse profonde du binaire pour verifier chaque candidat.
-        Ne patch pas aveuglement.
-
-        Returns:
-            Liste de candidats valides avec metadonnees
-        """
-        if not self.keyword_dict or not self.keyword_dict.is_loaded():
-            return []
-
-        if not self.r2:
-            return []
-
-        binary_path = self.r2.binary_path
-        analyzer = BinaryAnalyzer(binary_path)
-
-        if not analyzer.is_loaded():
-            return []
-
-        keywords = self.keyword_dict.get_keywords()
-        self.log(f"Pre-scan dictionnaire: {len(keywords)} mot(s)-cle(s)")
-
-        scan_results = analyzer.deep_scan(keywords)
-
-        validated = []
-        for keyword, patches in scan_results.items():
-            self.log(f"  Mot-cle '{keyword}': {len(patches)} occurrence(s)")
-            for patch_info in patches:
-                if patch_info.get('status') == 'SAFE':
-                    # Verifier la securite du patch
-                    offset = patch_info['offset']
-                    if analyzer.verify_patch_safety(offset, 4):
-                        validated.append({
-                            'keyword': keyword,
-                            'offset': offset,
-                            'offset_hex': patch_info.get('offset_hex', hex(offset)),
-                            'analysis': patch_info.get('analysis', {})
-                        })
-                        self.log(f"    {patch_info.get('offset_hex')} -> VALIDE")
-                    else:
-                        self.log(f"    {patch_info.get('offset_hex')} -> NON SUR (skip)")
-
-        self.log(f"Pre-scan: {len(validated)} cible(s) validee(s) par dictionnaire")
-        return validated
 
     def scan(self) -> List[Tuple[str, str, str, str]]:
         """Scanner l'integralite du binaire pour le pattern."""
@@ -460,28 +281,6 @@ class RituelB(BaseRitual):
             return (0, len(self.targets), [])
 
         self.log(f"Transmutation collective de {len(self.targets)} ames...")
-
-        # Si dictionnaire disponible, filtrer les cibles avec analyse profonde
-        if self.keyword_dict and self.keyword_dict.is_loaded():
-            dict_candidates = self._pre_scan_with_dictionary()
-            if dict_candidates:
-                # Filtrer les targets pour ne garder que celles validees par le dictionnaire
-                dict_offsets = {c['offset'] for c in dict_candidates}
-                filtered = []
-                for target in self.targets:
-                    try:
-                        target_offset_int = int(target[0], 16)
-                        if target_offset_int in dict_offsets:
-                            filtered.append(target)
-                    except (ValueError, TypeError):
-                        pass
-
-                if filtered:
-                    self.log(f"Ciblage dictionnaire: {len(filtered)}/{len(self.targets)} cibles filtrees")
-                    self.targets = filtered
-                else:
-                    self.log("Dictionnaire: aucune cible en commun - scan complet conserve")
-
         patched, failed, details = self.r2.batch_patch(
             self.targets,
             new_val="0x20",
@@ -511,6 +310,7 @@ class RituelB(BaseRitual):
 
         targets = self.scan()
 
+        # Persister les resultats du scan
         scan_data = [{"address": t[0], "instruction": t[1]} for t in targets]
         result_file = write_offset_results(scan_data, self.get_label(),
                                            extra_metadata={"total_targets": len(targets)})
@@ -532,20 +332,16 @@ class RituelB(BaseRitual):
 
         patched, failed, details = self.patch_all()
 
-        patch_data = {t[0]: {"patched": True, "instruction": t[1]} for t in self.targets}
+        # Persister les resultats des patches
+        patch_data = {t[0]: {"patched": True, "instruction": t[1]} for t in targets}
         result_file = write_patch_results(patch_data, self.get_label(),
                                           extra_metadata={"patched_count": patched,
                                                           "total_targets": len(targets)})
         self.log(f"[B] Resultats patch sauvegardes: {result_file}")
 
-        # Deplacer le fichier traite vers ☠️
-        if patched > 0 and self.r2:
-            self._move_to_skull(self.r2.binary_path)
-
         self.log(f"Bilan des ames: {patched} transmutees / {failed} echecs / {len(targets)} cibles")
 
         return patched > 0
-
 
 class RituelC(BaseRitual):
     """Rituel C - La Connexion Directe
@@ -553,6 +349,18 @@ class RituelC(BaseRitual):
     Aucun intermediaire. Le grimoire ouvre un canal brut
     avec Radare2. Un menu arcanique liste les pouvoirs r2.
     L'operateur choisit un pouvoir, le grimoire l'invoque.
+
+    Pouvoirs disponibles:
+    1. Scruter (Seek & Write) - s + wa
+    2. Analyser (aaa) - Analyse complete
+    3. Desassembler (pd) - Desassemblage
+    4. Voir l'Hex (px) - Hexdump
+    5. Sections (iS) - Sections du binaire
+    6. Cordes (iz) - Chaines de caracteres
+    7. Croisements (axt) - Cross-references
+    8. Ecrire assembleur (wa) - Write assembly
+    9. Patch hex (wx) - Patch hexadecimal
+    0. Quitter & Sauvegarder
     """
 
     POUVOIRS = [
@@ -576,9 +384,11 @@ class RituelC(BaseRitual):
         self._output: str = ""
 
     def get_label(self) -> str:
+        """Return the ritual label identifier."""
         return "C"
 
     def get_name(self) -> str:
+        """Return the ritual name."""
         return "La Connexion Directe"
 
     def set_pouvoir(self, choix: str, custom_cmd: str = ""):
@@ -650,15 +460,12 @@ class RituelC(BaseRitual):
             else:
                 self.log(f"Erreur d'invocation: {err}")
 
+            # Persister les resultats
             result_file = write_generic_results(
                 output if ok else f"Erreur: {err}",
                 "raw_r2_session",
                 extra_metadata={"command": cmd, "success": ok})
             self.log(f"[C] Resultats sauvegardes: {result_file}")
-
-            # Deplacer vers ☠️ si ecriture
-            if ok and choix in ("1", "8", "9"):
-                self._move_to_skull(self.r2.binary_path)
 
             self.r2.close()
             return ok
@@ -671,9 +478,17 @@ class RituelC(BaseRitual):
                 pass
             return False
 
-
 class RituelD(BaseRitual):
-    """Rituel D - Le Patcheur Flutter"""
+    """Rituel D - Le Patcheur Flutter
+
+    Integre la fonctionnalite de patchage Flutter:
+    - Fusion APK (split APKs)
+    - Extraction ARM64 depuis l'APK
+    - Analyse Blutter
+    - Patchage PP (0x20 <-> 0x30)
+    - Recherche ASM avec regex
+    - Remplacement dans l'APK
+    """
 
     def __init__(self, log_callback: Callable, progress_callback: Callable,
                  r2_handler: Optional[Radare2Handler] = None,
@@ -682,9 +497,11 @@ class RituelD(BaseRitual):
         self.binary = binary_path
 
     def get_label(self) -> str:
+        """Return the ritual label identifier."""
         return "D"
 
     def get_name(self) -> str:
+        """Return the ritual name."""
         return "Le Patcheur Flutter"
 
     def execute(self) -> bool:
@@ -716,14 +533,12 @@ class RituelD(BaseRitual):
 
             self.progress(2, 2, "Rituel D")
 
+            # Persister le resume
             result_file = write_generic_results(
                 f"Patchage Flutter termine\nAPK: {result_path}",
                 "flutter_patcher",
                 extra_metadata={"apk_path": self.binary, "result_path": result_path})
             self.log(f"[D] Resultats sauvegardes: {result_file}")
-
-            # Deplacer l'APK traite vers ☠️
-            self._move_to_skull(self.binary)
 
             self.log("Rituel D: Patchage Flutter termine")
             return True
@@ -737,9 +552,13 @@ class RituelD(BaseRitual):
             self.log(f"[D] Erreur journalisee: {result_file}")
             return False
 
-
 class RituelE(BaseRitual):
-    """Rituel E - La Quete des Fonctions"""
+    """Rituel E - La Quete des Fonctions
+
+    Utilise r2pipe pour trouver les fonctions avec des patterns ARM64 specifiques:
+    - v2: stp x29, x30, [x15, -0x10]! + add x0, x22, 0x30 (registre x0 specifique)
+    - v3: stp x29, x30, [x15, -0x10]! + add x<d+>, x<d+>, 0x30 (n'importe quel registre)
+    """
 
     def __init__(self, log_callback: Callable, progress_callback: Callable,
                  r2_handler: Optional[Radare2Handler] = None,
@@ -748,9 +567,11 @@ class RituelE(BaseRitual):
         self.binary = binary_path
 
     def get_label(self) -> str:
+        """Return the ritual label identifier."""
         return "E"
 
     def get_name(self) -> str:
+        """Return the ritual name."""
         return "La Quete des Fonctions"
 
     def execute(self) -> bool:
@@ -778,6 +599,7 @@ class RituelE(BaseRitual):
             v2_results = finder.find_v2()
             self.log(f"[+] v2: {len(v2_results)} fonctions trouvees")
 
+            # Persister les resultats v2
             result_file = write_function_results(
                 v2_results, "v2",
                 extra_metadata={"binary": binary_path, "pattern": "add x0, x22, 0x30"})
@@ -787,12 +609,13 @@ class RituelE(BaseRitual):
 
             if self.is_stopping():
                 self.log("Rituel E: Arrete avant la recherche v3")
-                return True
+                return True  # v2 deja complete
 
             self.log("[E] Recherche des patterns v3 (add x<d+>, x<d+>, 0x30)...")
             v3_results = finder.find_v3()
             self.log(f"[+] v3: {len(v3_results)} fonctions trouvees")
 
+            # Persister les resultats v3
             result_file = write_function_results(
                 v3_results, "v3",
                 extra_metadata={"binary": binary_path, "pattern": "add x<d+>, x<d+>, 0x30"})
@@ -805,9 +628,15 @@ class RituelE(BaseRitual):
             self.log(f"Rituel E: Erreur recherche fonctions: {e}")
             return False
 
-
 class RituelF(BaseRitual):
-    """Rituel F - Le Patcheur de Manifeste"""
+    """Rituel F - Le Patcheur de Manifeste
+
+    Patchage du manifeste APK:
+    - Decompilation APK avec APKEditor
+    - Suppression des recepteurs de verification de licence
+    - Correction de l'attribut extractNativeLibs
+    - Reconstruction de l'APK
+    """
 
     def __init__(self, log_callback: Callable, progress_callback: Callable,
                  r2_handler: Optional[Radare2Handler] = None,
@@ -816,9 +645,11 @@ class RituelF(BaseRitual):
         self.binary = binary_path
 
     def get_label(self) -> str:
+        """Return the ritual label identifier."""
         return "F"
 
     def get_name(self) -> str:
+        """Return the ritual name."""
         return "Le Patcheur de Manifeste"
 
     def execute(self) -> bool:
@@ -851,15 +682,12 @@ class RituelF(BaseRitual):
 
             success = process_manifest_patcher(self.binary, jar_file)
 
+            # Persister les resultats
             result_file = write_generic_results(
                 f"Patchage manifeste {'reussi' if success else 'echoue'}\nAPK: {self.binary}",
                 "manifest_patcher",
                 extra_metadata={"apk_path": self.binary, "success": success})
             self.log(f"[F] Resultats sauvegardes: {result_file}")
-
-            # Deplacer l'APK traite vers ☠️
-            if success:
-                self._move_to_skull(self.binary)
 
             if success:
                 self.log("Rituel F: Patchage manifeste termine")
@@ -872,12 +700,10 @@ class RituelF(BaseRitual):
             self.log(f"Rituel F: Erreur patchage manifeste: {e}")
             return False
 
-
 def get_ritual(mode_name: str, log_cb: Callable, progress_cb: Callable,
                r2_handler: Optional[Radare2Handler] = None,
                offset: Optional[str] = None,
-               binary_path: Optional[str] = None,
-               keyword_dict: Optional[KeywordDictionary] = None) -> BaseRitual:
+               binary_path: Optional[str] = None) -> BaseRitual:
     """Fabrique: creer une instance de rituel par nom.
 
     Args:
@@ -887,7 +713,6 @@ def get_ritual(mode_name: str, log_cb: Callable, progress_cb: Callable,
         r2_handler: Handler Radare2 (optionnel)
         offset: Offset pour Rituel A
         binary_path: Chemin binaire pour Rituels D/E/F
-        keyword_dict: Dictionnaire de mots-cles pour Rituel A/B
 
     Returns:
         Instance du rituel correspondant
@@ -897,9 +722,9 @@ def get_ritual(mode_name: str, log_cb: Callable, progress_cb: Callable,
     """
     mode_name = mode_name.upper()
     if mode_name == 'A':
-        return RituelA(log_cb, progress_cb, r2_handler, offset, keyword_dict)
+        return RituelA(log_cb, progress_cb, r2_handler, offset)
     elif mode_name == 'B':
-        return RituelB(log_cb, progress_cb, r2_handler, keyword_dict)
+        return RituelB(log_cb, progress_cb, r2_handler)
     elif mode_name == 'C':
         return RituelC(log_cb, progress_cb, r2_handler)
     elif mode_name == 'D':

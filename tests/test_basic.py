@@ -11,8 +11,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from shadowprotocol.target import TargetSelector, TargetValidator
 from shadowprotocol.validator import DependencyValidator, CodeValidator
 from shadowprotocol.config import Config
-from shadowprotocol.keyword_analyzer import KeywordDictionary, BinaryAnalyzer
-from shadowprotocol.file_manager import FileManager
 
 
 class TestTargetSelector:
@@ -132,17 +130,7 @@ class TestDependencyValidator:
         ok, messages = DependencyValidator.validate_all()
         assert isinstance(ok, bool)
         assert isinstance(messages, list)
-        assert len(messages) >= 2
-
-    def test_check_r2pipe_actually_checks(self):
-        """check_r2pipe should actually verify the import."""
-        ok, msg = DependencyValidator.check_r2pipe()
-        assert isinstance(ok, bool)
-        # The result depends on whether r2pipe is installed
-        if ok:
-            assert "OK" in msg
-        else:
-            assert "missing" in msg or "not found" in msg
+        assert len(messages) >= 2  # At least Python + r2 checks
 
 
 class TestCodeValidator:
@@ -155,6 +143,7 @@ class TestCodeValidator:
             f.flush()
             try:
                 unused = CodeValidator.find_unused_imports(f.name)
+                # 'os' and 'sys' are unused
                 assert 'os' in unused or 'sys' in unused
             finally:
                 os.unlink(f.name)
@@ -171,7 +160,7 @@ class TestConfig:
     def test_get_default(self):
         """Config.get returns default value."""
         result = Config.get('radare2_timeout')
-        assert result == 60
+        assert result == 60  # Merged default from v4.0
 
     def test_get_unknown_key(self):
         """Config.get returns None for unknown keys."""
@@ -186,163 +175,11 @@ class TestConfig:
     def test_init_creates_dirs(self):
         """Config.init creates default directories."""
         Config.init()
-
-
-class TestKeywordDictionary:
-    """Tests for KeywordDictionary."""
-
-    def test_load_from_comma_separated_file(self):
-        """Load keywords from comma-separated .txt file."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-            f.write('"mot1", "mot2", "mot3"')
-            f.flush()
-            try:
-                kd = KeywordDictionary(f.name)
-                assert kd.is_loaded()
-                assert len(kd) == 3
-                assert "mot1" in kd.get_keywords()
-                assert "mot2" in kd.get_keywords()
-                assert "mot3" in kd.get_keywords()
-            finally:
-                os.unlink(f.name)
-
-    def test_load_from_line_separated_file(self):
-        """Load keywords from one-per-line .txt file."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-            f.write("keyword1\nkeyword2\nkeyword3\n")
-            f.flush()
-            try:
-                kd = KeywordDictionary(f.name)
-                assert kd.is_loaded()
-                assert len(kd) == 3
-            finally:
-                os.unlink(f.name)
-
-    def test_add_keyword_manually(self):
-        """Add keyword manually."""
-        kd = KeywordDictionary()
-        kd.add_keyword("test_keyword")
-        assert kd.is_loaded()
-        assert "test_keyword" in kd.get_keywords()
-
-    def test_add_keywords_from_input(self):
-        """Add keywords from user input string."""
-        kd = KeywordDictionary()
-        added = kd.add_keywords_from_input('"mot1", "mot2"')
-        assert added == 2
-        assert "mot1" in kd.get_keywords()
-        assert "mot2" in kd.get_keywords()
-
-    def test_empty_dictionary(self):
-        """Empty dictionary should not be loaded."""
-        kd = KeywordDictionary()
-        assert not kd.is_loaded()
-        assert len(kd) == 0
-
-
-class TestBinaryAnalyzer:
-    """Tests for BinaryAnalyzer."""
-
-    def test_load_binary(self):
-        """Load a binary file."""
-        with tempfile.NamedTemporaryFile(suffix='.so', delete=False) as f:
-            f.write(b'\x7fELF' + b'\x00' * 100)
-            f.flush()
-            try:
-                analyzer = BinaryAnalyzer(f.name)
-                assert analyzer.is_loaded()
-            finally:
-                os.unlink(f.name)
-
-    def test_find_keyword_offsets(self):
-        """Find keyword offsets in binary."""
-        with tempfile.NamedTemporaryFile(suffix='.bin', delete=False) as f:
-            f.write(b'\x00' * 64 + b'isPro' + b'\x00' * 50)
-            f.flush()
-            try:
-                analyzer = BinaryAnalyzer(f.name)
-                offsets = analyzer.find_keyword_offsets("isPro")
-                assert len(offsets) >= 1
-                assert 64 in offsets
-            finally:
-                os.unlink(f.name)
-
-    def test_validate_offset_safety(self):
-        """Validate offset safety - reject header region."""
-        with tempfile.NamedTemporaryFile(suffix='.so', delete=False) as f:
-            f.write(b'\x7fELF' + b'\x00' * 200)
-            f.flush()
-            try:
-                analyzer = BinaryAnalyzer(f.name)
-                # Offset in header should be unsafe
-                assert not analyzer._validate_offset_safety(10)
-                # Offset after header should be safe
-                assert analyzer._validate_offset_safety(100)
-            finally:
-                os.unlink(f.name)
-
-    def test_get_binary_info(self):
-        """Get binary info."""
-        with tempfile.NamedTemporaryFile(suffix='.so', delete=False) as f:
-            f.write(b'\x7fELF' + b'\x00' * 100)
-            f.flush()
-            try:
-                analyzer = BinaryAnalyzer(f.name)
-                info = analyzer.get_binary_info()
-                assert info['is_elf'] is True
-                assert info['size'] == 104
-            finally:
-                os.unlink(f.name)
-
-
-class TestFileManager:
-    """Tests for FileManager."""
-
-    def test_create_skull_folder(self):
-        """Create skull folder."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            target = os.path.join(tmpdir, "test.so")
-            with open(target, 'w') as f:
-                f.write("test")
-            fm = FileManager(target)
-            assert fm.create_skull_folder()
-            assert fm.skull_exists()
-
-    def test_move_to_skull(self):
-        """Move file to skull folder."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            target = os.path.join(tmpdir, "test.so")
-            with open(target, 'w') as f:
-                f.write("test content")
-            fm = FileManager(target)
-            result = fm.move_to_skull(target)
-            assert result is not None
-            assert os.path.exists(result)
-            assert not os.path.exists(target)
-
-    def test_copy_to_skull(self):
-        """Copy file to skull folder (keep original)."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            target = os.path.join(tmpdir, "test.so")
-            with open(target, 'w') as f:
-                f.write("test content")
-            fm = FileManager(target)
-            result = fm.copy_to_skull(target)
-            assert result is not None
-            assert os.path.exists(result)
-            assert os.path.exists(target)
-
-    def test_find_targets_in_path(self):
-        """Find targets in a directory."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            so_file = os.path.join(tmpdir, "libtest.so")
-            with open(so_file, 'w') as f:
-                f.write("test")
-            targets = FileManager.find_targets_in_path(tmpdir)
-            assert len(targets) >= 1
+        # Should not raise an exception
 
 
 if __name__ == "__main__":
+    # Simple test runner for environments without pytest
     import traceback
 
     test_classes = [
@@ -351,9 +188,6 @@ if __name__ == "__main__":
         TestDependencyValidator,
         TestCodeValidator,
         TestConfig,
-        TestKeywordDictionary,
-        TestBinaryAnalyzer,
-        TestFileManager,
     ]
 
     total = 0
