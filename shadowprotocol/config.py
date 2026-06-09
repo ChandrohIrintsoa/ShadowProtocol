@@ -9,6 +9,7 @@ import os
 import tempfile
 from pathlib import Path
 
+
 class Config:
     """Configuration globale avec surcharge env."""
 

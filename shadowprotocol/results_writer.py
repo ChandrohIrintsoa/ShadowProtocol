@@ -3,7 +3,6 @@ Results Writer - Persistent output for search results and offset data
 
 Ensures that all search results, offset data, and patching results are
 written to a dedicated 'results/' directory, separate from logs.
-Each output file is clearly identified and accessible.
 """
 
 import os
@@ -12,6 +11,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from .config import Config
+
 
 def _ensure_results_dir(results_dir: Optional[str] = None) -> str:
     """Ensure the results directory exists and return its path."""
@@ -23,9 +23,11 @@ def _ensure_results_dir(results_dir: Optional[str] = None) -> str:
     os.makedirs(target_dir, exist_ok=True)
     return target_dir
 
+
 def _timestamp_tag() -> str:
     """Generate a compact timestamp tag for file naming."""
     return datetime.now().strftime("%Y%m%d_%H%M%S")
+
 
 def write_offset_results(
     offsets: List[Dict[str, Any]],
@@ -41,7 +43,7 @@ def write_offset_results(
 
     with open(filepath, "w", encoding="utf-8") as f:
         f.write("=" * 70 + "\n")
-        f.write(f"SHADOWPROTOCOL - OFFSET SEARCH RESULTS\n")
+        f.write("SHADOWPROTOCOL - OFFSET SEARCH RESULTS\n")
         f.write(f"Mode: {mode_label}\n")
         f.write(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"Total results: {len(offsets)}\n")
@@ -65,6 +67,7 @@ def write_offset_results(
                 f.write("\n")
     return filepath
 
+
 def write_patch_results(
     patch_results: Dict[str, Any],
     mode_label: str,
@@ -84,7 +87,7 @@ def write_patch_results(
 
     with open(filepath, "w", encoding="utf-8") as f:
         f.write("=" * 70 + "\n")
-        f.write(f"SHADOWPROTOCOL - PATCH RESULTS\n")
+        f.write("SHADOWPROTOCOL - PATCH RESULTS\n")
         f.write(f"Mode: {mode_label}\n")
         f.write(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"Total entries: {len(patch_results)}\n")
@@ -103,6 +106,7 @@ def write_patch_results(
             f.write("\n")
     return filepath
 
+
 def write_function_results(
     functions: List,
     search_type: str,
@@ -117,7 +121,7 @@ def write_function_results(
 
     with open(filepath, "w", encoding="utf-8") as f:
         f.write("=" * 70 + "\n")
-        f.write(f"SHADOWPROTOCOL - FUNCTION SEARCH RESULTS\n")
+        f.write("SHADOWPROTOCOL - FUNCTION SEARCH RESULTS\n")
         f.write(f"Search type: {search_type}\n")
         f.write(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"Total functions found: {len(functions)}\n")
@@ -141,6 +145,7 @@ def write_function_results(
                 f.write("\n")
     return filepath
 
+
 def write_related_functions(
     functions: List[tuple],
     pp_address: str,
@@ -155,7 +160,7 @@ def write_related_functions(
 
     with open(filepath, "w", encoding="utf-8") as f:
         f.write("=" * 70 + "\n")
-        f.write(f"SHADOWPROTOCOL - RELATED FUNCTIONS RESULTS\n")
+        f.write("SHADOWPROTOCOL - RELATED FUNCTIONS RESULTS\n")
         f.write(f"PP Address: {pp_address}\n")
         f.write(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"Total functions: {len(functions)}\n")
@@ -170,6 +175,7 @@ def write_related_functions(
                 f.write(f"  {i}. function_address = {func_addr} | offset_value = {offset_val}\n")
         f.write("\n")
     return filepath
+
 
 def write_generic_results(
     data: Any,
