@@ -806,22 +806,221 @@ class ModeF(BaseMode):
             self.log(f"[!] MODE F: Manifest patching error: {e}")
             return False
 
+
+class ModeG(BaseMode):
+    """MODE G - Dictionary Scanner (Advanced Binary Analysis)
+
+    Deep binary scanning using keyword dictionaries with:
+    - Multi-keyword detection
+    - Confidence scoring
+    - Safe analysis (no modifications)
+    - Multiple cleanup modes
+    """
+
+    def __init__(self, log_callback: Callable, progress_callback: Callable,
+                 binary_path: str = None):
+        """Initialize MODE G
+
+        Args:
+            log_callback: Logging function
+            progress_callback: Progress update function
+            binary_path: Path to target binary
+        """
+        super().__init__(log_callback, progress_callback)
+        self.binary = binary_path
+        self.scanner = None
+        self.results = None
+
+    def get_label(self) -> str:
+        return "G"
+
+    def execute(self) -> bool:
+        """Execute MODE G: Dictionary Scanner analysis
+
+        Returns:
+            True if scan succeeded
+        """
+        self.log("[*] MODE G: Dictionary Scanner - Binary Analysis")
+
+        if not self.binary:
+            self.log("[!] No binary specified")
+            return False
+
+        try:
+            from .dictionary_scanner import DictionaryScanner
+
+            # Initialize scanner
+            self.log(f"[*] Initializing scanner for {self.binary}")
+            self.scanner = DictionaryScanner(self.binary)
+            self.log(f"[+] Binary type detected: {self.scanner.binary_type}")
+            self.log(f"[+] Binary size: {len(self.scanner.binary_data)} bytes")
+            self.update_progress(25)
+
+            self.log("[+] MODE G: Scanner initialized and ready")
+            return True
+
+        except Exception as e:
+            self.log(f"[!] MODE G error: {e}")
+            return False
+
+    def scan_keywords(self, keywords: List[str]) -> bool:
+        """Scan with provided keywords
+
+        Args:
+            keywords: List of keywords to search
+
+        Returns:
+            True if scan succeeded
+        """
+        if not self.scanner:
+            self.log("[!] Scanner not initialized")
+            return False
+
+        try:
+            self.log(f"[*] Scanning with {len(keywords)} keywords...")
+            self.results = self.scanner.deep_scan(keywords)
+
+            # Show report
+            self.log(self.scanner.get_scan_report())
+
+            # Statistics
+            stats = self._calculate_statistics()
+            self.log(f"\n[+] Scan Statistics:")
+            self.log(f"    Total matches: {stats['total_matches']}")
+            self.log(f"    Average confidence: {stats['avg_confidence']:.1f}%")
+
+            self.update_progress(75)
+            self.log("[+] MODE G: Scan completed")
+            return True
+
+        except Exception as e:
+            self.log(f"[!] Scan error: {e}")
+            return False
+
+    def _calculate_statistics(self) -> dict:
+        """Calculate scan statistics
+
+        Returns:
+            Statistics dictionary
+        """
+        if not self.results:
+            return {'total_matches': 0, 'avg_confidence': 0.0}
+
+        all_matches = [m for matches in self.results.values() for m in matches]
+        total = len(all_matches)
+        avg_conf = sum(m.confidence for m in all_matches) / total if total > 0 else 0.0
+
+        return {
+            'total_keywords': len(self.results),
+            'total_matches': total,
+            'avg_confidence': avg_conf * 100
+        }
+
+    def export_results(self, format_type: str = 'json') -> bool:
+        """Export scan results
+
+        Args:
+            format_type: 'json', 'csv', or 'html'
+
+        Returns:
+            True if export succeeded
+        """
+        try:
+            from .scanner_cli import ResultsExporter
+            from pathlib import Path
+
+            if not self.results or not self.scanner:
+                self.log("[!] No results to export")
+                return False
+
+            base_name = Path(self.binary).stem
+            timestamp = time.strftime('%Y%m%d_%H%M%S')
+
+            if format_type.lower() == 'json':
+                output_file = f"{base_name}_scan_{timestamp}.json"
+                ResultsExporter.to_json(
+                    self.results,
+                    output_file,
+                    metadata={
+                        'binary': self.binary,
+                        'binary_type': self.scanner.binary_type,
+                        'binary_size': len(self.scanner.binary_data)
+                    }
+                )
+                self.log(f"[+] Exported to {output_file}")
+
+            elif format_type.lower() == 'csv':
+                output_file = f"{base_name}_scan_{timestamp}.csv"
+                ResultsExporter.to_csv(self.results, output_file)
+                self.log(f"[+] Exported to {output_file}")
+
+            elif format_type.lower() == 'html':
+                output_file = f"{base_name}_scan_{timestamp}.html"
+                ResultsExporter.to_html(self.results, self.scanner, output_file)
+                self.log(f"[+] Exported to {output_file}")
+
+            return True
+
+        except Exception as e:
+            self.log(f"[!] Export error: {e}")
+            return False
+
+    def cleanup_mode(self, mode: str = 'A') -> bool:
+        """Execute cleanup after scan
+
+        Args:
+            mode: 'A' (simple) or 'B' (radical)
+
+        Returns:
+            True if cleanup succeeded
+        """
+        try:
+            from .dictionary_scanner import CleanupManager
+
+            if not self.binary:
+                self.log("[!] No target for cleanup")
+                return False
+
+            cleanup = CleanupManager(self.binary)
+
+            if mode.upper() == 'A':
+                self.log("[*] Executing Mode A cleanup (logs/cache)...")
+                success = cleanup.mode_a_cleanup()
+            elif mode.upper() == 'B':
+                self.log("[!] RADICAL cleanup - removing all traces")
+                success = cleanup.mode_b_cleanup()
+            else:
+                self.log(f"[!] Unknown cleanup mode: {mode}")
+                return False
+
+            if success:
+                self.log(f"[+] Cleanup Mode {mode.upper()} completed")
+                return True
+            else:
+                self.log(f"[!] Cleanup Mode {mode.upper()} failed")
+                return False
+
+        except Exception as e:
+            self.log(f"[!] Cleanup error: {e}")
+            return False
+
+
 def get_mode(mode_name: str, log_cb: Callable, progress_cb: Callable,
              binary_path: str = None, offset: str = None) -> BaseMode:
     """Factory: create a mode instance by name.
 
     Args:
-        mode_name: 'A', 'B', 'C', 'D', 'E', or 'F'
+        mode_name: 'A', 'B', 'C', 'D', 'E', 'F', or 'G'
         log_cb: Log callback function
         progress_cb: Progress callback function
-        binary_path: Path to binary (for modes A/B/C/D/E/F)
+        binary_path: Path to binary (for modes A/B/C/D/E/F/G)
         offset: Offset for MODE A
 
     Returns:
         Instance of the corresponding mode class
 
     Raises:
-        ValueError: If mode_name is not A-F
+        ValueError: If mode_name is not A-G
     """
     mode_name = mode_name.upper()
     if mode_name == 'A':
@@ -836,5 +1035,7 @@ def get_mode(mode_name: str, log_cb: Callable, progress_cb: Callable,
         return ModeE(log_cb, progress_cb, binary_path)
     elif mode_name == 'F':
         return ModeF(log_cb, progress_cb, binary_path)
+    elif mode_name == 'G':
+        return ModeG(log_cb, progress_cb, binary_path)
     else:
         raise ValueError(f"Unknown mode: {mode_name}")

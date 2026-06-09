@@ -132,11 +132,8 @@ class FileManager:
 
         return None
 
-    def cleanup_targets(self, keep_patched: bool = True) -> bool:
+    def cleanup_targets(self) -> bool:
         """Clean up target files and caches.
-
-        Args:
-            keep_patched: If True, keep patched files in ☠️
 
         Returns:
             True if cleanup succeeded

@@ -3,7 +3,6 @@ Keyword Analyzer - Binary target detection via keyword dictionary
 Analyzes binary signatures to find safe injection points without blind patching.
 """
 
-import re
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 
@@ -203,13 +202,11 @@ class BinaryAnalyzer:
         # Check for minimal context
         return offset + 8 <= len(self.binary_data)
 
-    def scan_for_safe_patches(self, keyword: str,
-                             min_context: int = 8) -> List[Dict]:
+    def scan_for_safe_patches(self, keyword: str) -> List[Dict]:
         """Scan binary for safe patch points around keyword.
 
         Args:
             keyword: Keyword to search for
-            min_context: Minimum bytes needed around offset
 
         Returns:
             List of safe patch candidates with metadata

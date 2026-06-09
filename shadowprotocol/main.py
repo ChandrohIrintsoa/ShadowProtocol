@@ -68,7 +68,7 @@ class ShadowProtocolApp:
         signal.signal(signal.SIGINT, self._handle_signal)
         signal.signal(signal.SIGTERM, self._handle_signal)
 
-    def _handle_signal(self, signum, frame):
+    def _handle_signal(self, _signum, _frame):
         """Gerer les signaux systeme (SIGINT, SIGTERM)."""
         self.stop_requested = True
         self.running = False
