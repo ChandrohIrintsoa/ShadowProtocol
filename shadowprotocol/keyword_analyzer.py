@@ -211,24 +211,37 @@ class BinaryAnalyzer:
         Supporte:
         - Chaines UTF-8 simples
         - Patterns hex: "0x30" -> un byte, "\\x30\\x20" -> deux bytes
+        - Format direct hex: "30 20" ou "3020"
         """
         if not keyword:
             return None
 
-        # Essayer le format hex multiple: \xHH\xHH
-        if r'\x' in keyword:
+        # Essayer le format hex multiple: \xHH\xHH (literal backslash x)
+        if '\\x' in keyword or keyword.startswith('x'):
             try:
-                hex_str = keyword.replace(r'\x', '')
-                return bytes.fromhex(hex_str)
-            except (ValueError, TypeError):
+                # Supporte: \x30\x20 ou x30x20
+                hex_str = keyword.replace('\\x', '').replace('x', '')
+                if hex_str and all(c in '0123456789abcdefABCDEF' for c in hex_str):
+                    # Grouper par paires de caractères
+                    pairs = [hex_str[i:i+2] for i in range(0, len(hex_str), 2)]
+                    return bytes(int(pair, 16) for pair in pairs)
+            except (ValueError, TypeError, AttributeError):
                 pass
 
-        # Essayer le format offset 0xHHHH (cherche le byte unique)
-        if keyword.startswith('0x') and len(keyword) <= 4:
+        # Essayer le format 0xHH ou 0xHHHH
+        if keyword.startswith('0x'):
             try:
-                byte_val = int(keyword, 16)
-                if 0 <= byte_val <= 0xFF:
-                    return bytes([byte_val])
+                # Peut être un ou plusieurs bytes
+                hex_part = keyword[2:]
+                if len(hex_part) <= 8 and all(c in '0123456789abcdefABCDEF' for c in hex_part):
+                    byte_val = int(hex_part, 16)
+                    # Encoder en bytes (little-endian ou big-endian?)
+                    if byte_val <= 0xFF:
+                        return bytes([byte_val])
+                    elif byte_val <= 0xFFFF:
+                        return byte_val.to_bytes(2, 'big')
+                    elif byte_val <= 0xFFFFFFFF:
+                        return byte_val.to_bytes(4, 'big')
             except (ValueError, TypeError):
                 pass
 
