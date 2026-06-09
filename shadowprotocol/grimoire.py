@@ -16,7 +16,7 @@ Etendue pour supporter les 6 rituels (A-F).
 import sys
 import os
 import curses
-import select
+import select as _select
 import threading
 import termios
 import tty
@@ -102,8 +102,6 @@ class GrimoireUI:
 
         # Mode Rituel C - sous-menu
         self._c_menu_active = False
-        self._c_choice = ""
-        self._c_awaiting_cmd = False
 
     # -- Mise a jour d'etat (thread-safe) ------------------------------
 
@@ -123,11 +121,6 @@ class GrimoireUI:
         """Ajouter une vision au tampon (thread-safe)."""
         with self.log_lock:
             self.vision_buffer.append(message)
-
-    # Alias pour compatibilite
-    def add_log(self, message: str):
-        """Alias: ajouter un message de log (compatibilite v3)."""
-        self.add_vision(message)
 
     def add_transmutation(self, offset: str, original: str,
                          patched: str, success: bool):
@@ -150,11 +143,6 @@ class GrimoireUI:
         """Mettre a jour le label de mode."""
         with self.lock:
             self.mode_label = mode
-
-    # Alias pour compatibilite
-    def set_status(self, status: str):
-        """Mettre a jour le statut (compatibilite v3)."""
-        # Dans le Grimoire, le statut est affiche dans le mode_label
 
     def set_target_info(self, name: str, arch: str, size: str,
                         r2_status: str, detected: List[str] = None):
@@ -568,11 +556,6 @@ class GrimoireANSI:
         with self.log_lock:
             self.vision_buffer.append(message)
 
-    # Alias pour compatibilite
-    def add_log(self, message: str):
-        """Alias: ajouter un message de log (compatibilite v3)."""
-        self.add_vision(message)
-
     def add_transmutation(self, offset: str, original: str,
                          patched: str, success: bool):
         with self.lock:
@@ -590,9 +573,6 @@ class GrimoireANSI:
     def set_mode(self, mode: str):
         with self.lock:
             self.mode_label = mode
-
-    def set_status(self, status: str):
-        """Compatibilite v3."""
 
     def set_target_info(self, name: str, arch: str, size: str,
                         r2_status: str, detected: List[str] = None):
@@ -730,7 +710,7 @@ class GrimoireANSI:
 
     def get_input(self) -> Optional[str]:
         try:
-            if select.select([sys.stdin], [], [], 0)[0]:
+            if _select.select([sys.stdin], [], [], 0)[0]:
                 ch = sys.stdin.read(1)
                 if not ch:
                     return None

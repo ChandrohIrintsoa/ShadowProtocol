@@ -836,17 +836,3 @@ def process_asm_patch(apk_path, apk_dir, out_dir=None):
     except Exception as e:
         print(f"ASM patching error: {e}")
         return 0
-
-def process_flutter_patch_combined(apk_path):
-    """Combined flutter patching using both pp.txt and asm folder.
-
-    Uses default configuration (PP disabled, ASM enabled, FALSE patch mode).
-
-    Args:
-        apk_path: Path to the APK file.
-
-    Returns:
-        Path to the (potentially patched) APK.
-    """
-    patcher = FlutterPatcher()
-    return patcher.process_combined(apk_path)

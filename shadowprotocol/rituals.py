@@ -213,7 +213,13 @@ class RituelA(BaseRitual):
         return None
 
     def validate_offset(self) -> Tuple[bool, str]:
-        """Valider le format et l'existence du pattern a l'offset."""
+        """Valider le format et l'existence du pattern autour de l'offset.
+
+        Recherche intelligente: analyse les alentours de l'offset (pd 100)
+        pour trouver le pattern add x?,x?,0x30 meme s'il n'est pas exactement
+        a l'adresse specifiee. L'offset pptool pointe souvent vers le debut
+        d'une fonction, l'instruction cible pouvant etre plus bas.
+        """
         if not self.offset or not re.match(r'^0x[0-9a-fA-F]+$', self.offset):
             return (False, "Format d'offset invalide (attendu: 0x...)")
 
@@ -221,20 +227,21 @@ class RituelA(BaseRitual):
             return (False, "Aucun binaire charge dans Radare2")
 
         self.log(f"Validation du sigil: {self.offset}")
+        self.log(f"Analyse des alentours (pd 100)...")
 
         if not self.r2.open(write=False):
             return (False, "Erreur d'ouverture Radare2 (lecture)")
 
         try:
-            found, instr, register = self.r2.check_pattern_at(self.offset)
+            found, instr, register = self.r2.check_pattern_at(self.offset, context_lines=100)
             self.r2.close()
 
             if found:
-                self.log(f"Incantation trouvee a {self.offset}: {instr}")
+                self.log(f"Incantation trouvee pres de {self.offset}: {instr}")
                 return (True, f"Pattern confirme: {instr}")
             else:
-                self.log(f"Aucune incantation 0x30 a {self.offset}")
-                return (False, f"Pattern add x?,x?,0x30 non trouve a {self.offset}")
+                self.log(f"Aucune incantation 0x30 dans les alentours de {self.offset}")
+                return (False, f"Pattern add x?,x?,0x30 non trouve aux alentours de {self.offset}")
         except Exception as e:
             try:
                 self.r2.close()
@@ -243,7 +250,11 @@ class RituelA(BaseRitual):
             return (False, f"Erreur validation: {e}")
 
     def patch(self) -> Tuple[bool, str]:
-        """Appliquer le patch 0x30 -> 0x20 a l'offset."""
+        """Appliquer le patch 0x30 -> 0x20 a l'offset.
+
+        Recherche intelligente: utilise pd 100 pour trouver l'instruction
+        cible aux alentours de l'offset pptool, puis patch a l'adresse reelle.
+        """
         if not self.r2:
             return (False, "Aucun binaire charge")
 
@@ -252,10 +263,10 @@ class RituelA(BaseRitual):
 
         try:
             # Re-verifier le pattern avant patch (ne pas patcher aveuglement)
-            found, instr, register = self.r2.check_pattern_at(self.offset)
+            found, instr, register = self.r2.check_pattern_at(self.offset, context_lines=100)
             if not found:
                 self.r2.close()
-                return (False, f"Pattern non confirme a {self.offset}")
+                return (False, f"Pattern non confirme aux alentours de {self.offset}")
 
             # Extraire les registres de l'instruction
             pattern = re.compile(r'add\s+(x\d+),\s*(x\d+),\s*0x30', re.IGNORECASE)

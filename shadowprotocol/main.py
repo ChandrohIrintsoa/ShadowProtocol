@@ -347,7 +347,7 @@ class ShadowProtocolApp:
 
     def handle_input(self, ch: str) -> bool:
         """Gerer les entrees clavier."""
-        if hasattr(self.ui, '_c_menu_active') and self.ui.c_menu_active:
+        if self.ui.c_menu_active:
             if ch == '\x1b':
                 self.ui.c_menu_active = False
                 self.logger.info("Retour au menu principal")
