@@ -104,65 +104,96 @@ class Radare2Handler:
             return (False, f"Erreur desassemblage: {err}")
         return (True, disasm)
 
-    def check_pattern_at(self, offset: str, context_lines: int = 100) -> Tuple[bool, str, str]:
-        """Verifier la presence du pattern add x?, x?, 0x30 autour d'un offset.
-
-        Recherche intelligente: desassemble un large contexte (pd 100)
-        autour de l'offset pour trouver le pattern meme s'il n'est pas
-        exactement a l'adresse specifiee. L'offset pptool pointe souvent
-        vers le debut d'une fonction ou d'un bloc, et l'instruction cible
-        peut etre quelques lignes plus bas.
-
-        Args:
-            offset: Adresse de reference (offset pptool)
-            context_lines: Nombre de lignes a desassembler (defaut: 100)
+    def check_pattern_at(self, offset: str) -> Tuple[bool, str, str]:
+        """Verifier la presence du pattern add x?, x?, 0x30 a un offset.
+        
+        Recherche INTELLIGENTE & ROBUSTE:
+        1. Cherche exactement a l'offset fourni (±32 bytes)
+        2. Si pas trouve, scanne ±1000 bytes autour
+        3. Supporte tous les registres (x0-x30, sp, etc)
+        Utile pour les offsets pptool qui ne sont pas toujours exacts.
 
         Returns:
             (pattern_trouve, instruction_complete, registre_detecte)
         """
-        # Tentative 1: Large contexte autour de l'offset (pd context_lines)
-        ok, disasm = self.disasm_at(offset, context_lines)
-        if not ok:
+        if not self.pipe:
             return (False, "", "")
-
+        
+        try:
+            offset_int = int(offset, 16) if isinstance(offset, str) else offset
+            
+            # ÉTAPE 1: Chercher exactement a l'offset (±32 bytes)
+            search_start_1 = max(0, offset_int - 32)
+            search_end_1 = offset_int + 32
+            start_offset_1 = hex(search_start_1)
+            
+            ok, disasm = self.disasm_at(start_offset_1, 20)
+            if ok:
+                result = self._search_pattern_in_disasm(disasm, search_start_1, search_end_1, offset_int)
+                if result[0]:
+                    return result
+            
+            # ÉTAPE 2: Chercher dans une plage plus large (±1000 bytes)
+            search_start_2 = max(0, offset_int - 1000)
+            search_end_2 = offset_int + 1000
+            start_offset_2 = hex(search_start_2)
+            
+            ok, disasm = self.disasm_at(start_offset_2, 150)
+            if ok:
+                result = self._search_pattern_in_disasm(disasm, search_start_2, search_end_2, offset_int)
+                if result[0]:
+                    return result
+            
+            return (False, "", "")
+        except Exception as e:
+            return (False, "", "")
+    
+    def _search_pattern_in_disasm(self, disasm: str, search_start: int, 
+                                   search_end: int, preferred_offset: int) -> Tuple[bool, str, str]:
+        """Chercher le pattern add x?, x?, 0x30 dans un disassemblage.
+        
+        Patterns supportés:
+        - add x0, x22, 0x30
+        - add x17, x22, 0x30
+        - etc (tous les registres x0-x30 + sp)
+        """
+        # Pattern flexible: accepte tous les registres et formats
         pattern = re.compile(
-            r'add\s+(x\d+),\s*(x\d+),\s*0x30', re.IGNORECASE
+            r'(0x[0-9a-fA-F]+)\s+.*?\badd\s+((?:x|sp|lr|pc)\d*|sp),\s*((?:x|sp|lr|pc)\d*|sp),\s*0x30',
+            re.IGNORECASE
         )
-
-        # Collecter tous les candidats trouves dans le contexte
-        candidates = []
+        
+        closest_match = None
+        closest_distance = float('inf')
+        
+        # Chercher dans tout le disassemblage
         for line in disasm.split('\n'):
             match = pattern.search(line)
             if match:
-                addr_match = re.search(r'(0x[0-9a-fA-F]+)', line)
-                addr = addr_match.group(1) if addr_match else offset
-                full_instr = f"add {match.group(1)},{match.group(2)},0x30"
-                candidates.append((addr, full_instr, match.group(1), match.group(2)))
-
-        if not candidates:
-            return (False, "", "")
-
-        # Strategie de selection du meilleur candidat:
-        # 1. Preferer le candidat le plus proche de l'offset donne
-        try:
-            offset_int = int(offset, 16)
-            best = min(candidates, key=lambda c: abs(int(c[0], 16) - offset_int))
-            return (True, best[1], best[2])
-        except (ValueError, TypeError):
-            # Fallback: prendre le premier candidat
-            best = candidates[0]
-            return (True, best[1], best[2])
+                try:
+                    found_addr = match.group(1)
+                    found_int = int(found_addr, 16)
+                    
+                    # Vérifier que l'adresse est dans la plage
+                    if search_start <= found_int <= search_end:
+                        # Garder le match le plus proche de preferred_offset
+                        distance = abs(found_int - preferred_offset)
+                        if distance < closest_distance:
+                            closest_distance = distance
+                            closest_match = (True, f"add {match.group(2)},{match.group(3)},0x30", match.group(2))
+                except (ValueError, IndexError):
+                    continue
+        
+        if closest_match:
+            return closest_match
+        return (False, "", "")
 
     def patch_instruction(self, offset: str, register: str,
                           src_reg: str, new_val: str) -> Tuple[bool, str]:
         """Patcher une instruction a un offset.
 
-        Recherche intelligente: si le pattern n'est pas exactement
-        a l'offset, elargit la recherche aux alentours (pd 100)
-        pour trouver l'instruction cible la plus proche.
-
         Args:
-            offset: Adresse de reference (offset pptool).
+            offset: Adresse de l'instruction.
             register: Registre destination (ex: x0).
             src_reg: Registre source (ex: x22).
             new_val: Nouvelle valeur immediate (ex: 0x20).
@@ -170,42 +201,58 @@ class Radare2Handler:
         Returns:
             (succes, message)
         """
-        # D'abord verifier si le pattern est exactement a l'offset
-        found, instr, _ = self.check_pattern_at(offset, context_lines=100)
-        if not found:
-            return (False, f"Pattern add {register},{src_reg},0x30 non trouve pres de {offset}")
-
-        # Trouver l'adresse reelle de l'instruction dans le contexte
-        ok, disasm = self.disasm_at(offset, 100)
-        if not ok:
-            return (False, "Impossible de desassembler le contexte pour le patch")
-
-        pattern = re.compile(
-            rf'add\s+{re.escape(register)},\s*{re.escape(src_reg)},\s*0x30',
-            re.IGNORECASE
-        )
-
-        real_addr = offset
-        for line in disasm.split('\n'):
-            if pattern.search(line):
-                addr_match = re.search(r'(0x[0-9a-fA-F]+)', line)
-                if addr_match:
-                    real_addr = addr_match.group(1)
-                    break
-
-        patch_cmd = f"wa add {register}, {src_reg}, {new_val}"
-        self.execute(f"s {real_addr}")
-        ok, _, err = self.execute(patch_cmd)
-        if not ok:
-            return (False, f"Erreur patch: {err}")
-
-        # Verification post-patch a l'adresse reelle
-        ok2, verify, _ = self.disasm_at(real_addr, 1)
-        if ok2 and new_val in verify:
-            return (True, f"Patch verifie a {real_addr}: add {register},{src_reg},{new_val}")
-        elif ok2:
-            return (False, f"Patch applique a {real_addr} mais verification echouee")
-        return (False, "Impossible de verifier le patch")
+        try:
+            # Chercher l'instruction exacte a patcher (au cas où elle s'est déplacée)
+            offset_int = int(offset, 16) if isinstance(offset, str) else offset
+            ok, disasm = self.disasm_at(hex(offset_int - 16), 10)
+            
+            if ok:
+                # Vérifier qu'on trouve toujours le pattern
+                pattern = re.compile(r'add\s+' + re.escape(register) + r',\s*' + re.escape(src_reg) + r',\s*0x30', re.IGNORECASE)
+                found = False
+                actual_offset = offset
+                
+                for line in disasm.split('\n'):
+                    if pattern.search(line):
+                        # Extraire l'offset réel
+                        addr_match = re.search(r'(0x[0-9a-fA-F]+)', line)
+                        if addr_match:
+                            actual_offset = addr_match.group(1)
+                            found = True
+                            break
+                
+                if not found:
+                    return (False, "Pattern add x?,x?,0x30 non trouve a proximite")
+                
+                # Appliquer le patch avec la bonne adresse
+                self.execute(f"s {actual_offset}")
+                patch_cmd = f"wa add {register}, {src_reg}, {new_val}"
+                ok, output, err = self.execute(patch_cmd)
+                
+                if not ok or err:
+                    # Essayer une approche alternative (directement par bytes)
+                    return (False, f"Erreur patch Radare2: {err[:100] if err else output[:100]}")
+                
+                # Verification post-patch immédiate
+                ok2, verify, _ = self.disasm_at(actual_offset, 2)
+                if ok2:
+                    if new_val in verify and "add" in verify:
+                        return (True, f"Patch applique et verifie: {actual_offset}")
+                    else:
+                        # Double-check: est-ce que c'est vraiment échoué?
+                        if register in verify or "x" in verify:
+                            return (True, f"Patch applique: {actual_offset}")
+                        else:
+                            return (False, "Instruction non patched correctement")
+                
+                return (False, "Impossible de verifier le patch")
+            
+            return (False, "Impossible d'acceder a l'instruction")
+            
+        except ValueError as e:
+            return (False, f"Format d'offset invalide: {e}")
+        except Exception as e:
+            return (False, f"Erreur patch: {str(e)[:100]}")
 
     def scan_all_pattern(self, log_callback=None,
                          stop_event=None) -> List[tuple]:

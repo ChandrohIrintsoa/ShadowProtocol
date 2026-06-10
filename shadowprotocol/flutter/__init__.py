@@ -23,6 +23,7 @@ from .patcher import (
     patch_false_addresses,
     process_pp_patch,
     process_asm_patch,
+    process_flutter_patch_combined,
 )
 from .manifest import (
     patch_android_manifest,
@@ -50,6 +51,7 @@ __all__ = [
     "patch_false_addresses",
     "process_pp_patch",
     "process_asm_patch",
+    "process_flutter_patch_combined",
     "patch_android_manifest",
     "process_manifest_patcher",
     "check_termux",

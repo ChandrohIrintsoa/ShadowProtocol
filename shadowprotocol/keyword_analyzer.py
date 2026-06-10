@@ -303,6 +303,10 @@ class BinaryAnalyzer:
         if offset < 64 or offset >= len(self.binary_data) - 8:
             return False
 
+        # Verifier si dans l'en-tete ELF
+        if self.binary_data[:4] == b'\x7fELF' and offset < 64:
+            return False
+
         # Verifier le contexte minimal
         return offset + 8 <= len(self.binary_data)
 
