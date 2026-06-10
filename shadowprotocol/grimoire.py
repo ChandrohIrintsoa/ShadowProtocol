@@ -153,9 +153,8 @@ class GrimoireUI:
 
     # Alias pour compatibilite
     def set_status(self, status: str):
-        """Mettre a jour le statut (compatibilite v3)."""
-        # Dans le Grimoire, le statut est affiche dans le mode_label
-
+        """Mettre a jour le statut (compatibilite v3). Alias vers set_mode."""
+        self.set_mode(status)
     def set_target_info(self, name: str, arch: str, size: str,
                         r2_status: str, detected: List[str] = None):
         """Mettre a jour les infos de la cible (Chapitre III)."""
@@ -592,7 +591,8 @@ class GrimoireANSI:
             self.mode_label = mode
 
     def set_status(self, status: str):
-        """Compatibilite v3."""
+        """Compatibilite v3. Alias vers set_mode."""
+        self.set_mode(status)
 
     def set_target_info(self, name: str, arch: str, size: str,
                         r2_status: str, detected: List[str] = None):

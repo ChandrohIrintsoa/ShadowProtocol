@@ -7,7 +7,6 @@ Validation des dependances systeme et integrite du code.
 import ast
 import sys
 import subprocess
-from pathlib import Path
 from typing import List, Tuple
 
 

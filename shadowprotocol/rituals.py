@@ -214,11 +214,12 @@ class RituelA(BaseRitual):
 
     def validate_offset(self) -> Tuple[bool, str]:
         """Valider le format et l'existence du pattern a l'offset.
-        
-        Recherche INTELLIGENTE:
-        1. Cherche ±32 bytes du offset fourni (pptool)
-        2. Si pas trouve, cherche ±1000 bytes
-        3. Retourne le match le plus proche
+
+        Recherche INTELLIGENTE & FONCTION-AWARE:
+        1. Trouve la fonction contenant l'offset (via afi de radare2)
+        2. Desassemble toute la fonction et cherche le pattern
+        3. Elargit progressivement si pas trouve (pd 100, pd 250, pd 500)
+        4. Garde le match le plus proche de l'offset pptool
         """
         if not self.offset or not re.match(r'^0x[0-9a-fA-F]+$', self.offset):
             return (False, "Format d'offset invalide (attendu: 0x...)")
@@ -227,7 +228,7 @@ class RituelA(BaseRitual):
             return (False, "Aucun binaire charge dans Radare2")
 
         self.log(f"Validation du sigil: {self.offset}")
-        self.log(f"  -> Recherche intelligente autour de l'offset (pptool)")
+        self.log("  -> Recherche fonction-aware autour de l'offset (pptool)")
 
         if not self.r2.open(write=False):
             return (False, "Erreur d'ouverture Radare2 (lecture)")
@@ -237,10 +238,16 @@ class RituelA(BaseRitual):
             self.r2.close()
 
             if found:
-                self.log(f"✓ Incantation trouvee: {instr}")
+                real_off = self.r2.get_last_found_offset()
+                if real_off and real_off != self.offset:
+                    self.log(f"  -> Pattern localise a {real_off} (offset pptool: {self.offset})")
+                    self._real_offset = real_off
+                else:
+                    self._real_offset = self.offset
+                self.log(f"Incantation trouvee: {instr}")
                 return (True, f"Pattern confirme: {instr}")
             else:
-                self.log(f"✗ Aucune incantation 0x30 trouvee pres de {self.offset}")
+                self.log(f"Aucune incantation 0x30 trouvee pres de {self.offset}")
                 return (False, f"Pattern add x?,x?,0x30 non trouve pres de {self.offset}")
         except Exception as e:
             try:
@@ -250,7 +257,7 @@ class RituelA(BaseRitual):
             return (False, f"Erreur validation: {e}")
 
     def patch(self) -> Tuple[bool, str]:
-        """Appliquer le patch 0x30 -> 0x20 a l'offset réel trouvé."""
+        """Appliquer le patch 0x30 -> 0x20 a l'offset reel trouve."""
         if not self.r2:
             return (False, "Aucun binaire charge")
 
@@ -258,28 +265,24 @@ class RituelA(BaseRitual):
             return (False, "Erreur d'ouverture en ecriture")
 
         try:
-            # Re-verifier le pattern avant patch (ne pas patcher aveuglement)
-            found, instr, register = self.r2.check_pattern_at(self.offset)
-            if not found:
-                self.r2.close()
-                return (False, f"Pattern non confirme proche de {self.offset}")
+            # Utiliser l'offset reel decouvert par validate_offset si disponible
+            patch_offset = getattr(self, '_real_offset', None) or self.offset
 
-            # Chercher l'offset réel pour le patchage
-            ok_dis, full_dis = self.r2.disasm_at(self.offset, 100)
-            real_offset = self.offset
-            
-            if ok_dis:
-                pattern = re.compile(
-                    r'(0x[0-9a-fA-F]+).*add\s+(x\d+),\s*(x\d+),\s*0x30'
-                )
-                for line in full_dis.split('\n'):
-                    match = pattern.search(line)
-                    if match:
-                        real_offset = match.group(1)
-                        break
+            # Re-verifier le pattern avant patch (ne pas patcher aveuglement)
+            found, instr, register = self.r2.check_pattern_at(patch_offset)
+            if not found:
+                # Dernier recours: essayer avec l'offset original
+                if patch_offset != self.offset:
+                    found, instr, register = self.r2.check_pattern_at(self.offset)
+                if not found:
+                    self.r2.close()
+                    return (False, f"Pattern non confirme proche de {self.offset}")
+
+            # Utiliser l'offset reel trouve par check_pattern_at
+            real_offset = self.r2.get_last_found_offset() or patch_offset
 
             # Extraire les registres de l'instruction
-            pattern = re.compile(r'add\s+(x\d+),\s*(x\d+),\s*0x30', re.IGNORECASE)
+            pattern = re.compile(r'add\s+(\w+),\s*(\w+),\s*#?0x30', re.IGNORECASE)
             match = pattern.search(instr)
             if not match:
                 self.r2.close()
@@ -297,10 +300,10 @@ class RituelA(BaseRitual):
 
             if ok:
                 self._result = (real_offset, instr, f"add {reg_dest},{reg_src},0x20", True)
-                self.log(f"✓ Transmutation reussie: {real_offset}")
+                self.log(f"Transmutation reussie: {real_offset}")
             else:
                 self._result = (real_offset, instr, "", False)
-                self.log(f"✗ Echec transmutation: {msg}")
+                self.log(f"Echec transmutation: {msg}")
 
             return (ok, msg)
         except Exception as e:
