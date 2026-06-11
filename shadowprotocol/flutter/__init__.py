@@ -7,6 +7,9 @@ Provides Flutter APK patching functionality:
 - manifest: Manifest patching (license check removal, extractNativeLibs)
 - installer: Auto-install for Termux environments
 - find_functions: ARM64 function pattern finding (v2/v3)
+
+Note: Le module blutter-termux est disponible via shadowprotocol.blutter
+pour l'analyse Dart AOT (utilise par Rituel D).
 """
 
 from .core import (

@@ -20,10 +20,10 @@ class Config:
         'apk_editor_jar': Path.home() / '.shadowprotocol' / 'APKEditor.jar',
         'radare2_timeout': 60,
         'max_visions': 30,
-        'max_log_size': 50 * 1024 * 1024,  # 50MB
         'patch_from': '0x30',
         'patch_to': '0x20',
         'pattern_regex': r'add\s+x\d+,\s*x\d+,\s*0x30',
+        'blutter_dir': str(Path.home() / 'blutter-termux'),
     }
 
     @classmethod

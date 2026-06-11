@@ -11,7 +11,9 @@ Rituel E : La Quete des Fonctions - ARM64 pattern search (v2/v3)
 Rituel F : Le Patcheur de Manifeste - License check removal, extractNativeLibs
 """
 
+import os
 import re
+import tempfile
 import threading
 from abc import ABC, abstractmethod
 from typing import Callable, Dict, List, Optional, Tuple
@@ -697,11 +699,20 @@ class RituelC(BaseRitual):
 
 
 class RituelD(BaseRitual):
-    """Rituel D - Le Patcheur Flutter"""
+    """Rituel D - Le Patcheur Flutter
+
+    Pipeline complet integre:
+    1. Analyse Blutter (extraction asm, pp.txt, objs.txt)
+    2. Patchage Flutter combine (PP + ASM + false addresses)
+    3. Reconstruction APK
+
+    Le module blutter-termux est integre directement dans ShadowProtocol
+    pour une execution sans dependance externe.
+    """
 
     def __init__(self, log_callback: Callable, progress_callback: Callable,
                  r2_handler: Optional[Radare2Handler] = None,
-                 binary_path: str = None):
+                 binary_path: Optional[str] = None):
         super().__init__(log_callback, progress_callback, r2_handler)
         self.binary = binary_path
 
@@ -711,8 +722,85 @@ class RituelD(BaseRitual):
     def get_name(self) -> str:
         return "Le Patcheur Flutter"
 
+    def _run_blutter_analysis(self, apk_path: str) -> Optional[str]:
+        """Executer l'analyse Blutter sur l'APK.
+
+        Utilise le module blutter-termux integre pour extraire
+        les fichiers d'analyse (asm/, pp.txt, objs.txt).
+
+        Args:
+            apk_path: Chemin vers le fichier APK.
+
+        Returns:
+            Chemin du repertoire de sortie Blutter, ou None si echec.
+        """
+        try:
+            from .blutter.blutter_cli import (
+                extract_libs_from_apk, find_lib_files,
+                get_dart_lib_info, BlutterInput, build_and_run,
+            )
+            from .config import Config
+
+            blutter_dir = str(Config.get('blutter_dir'))
+            base_name = os.path.splitext(os.path.basename(apk_path))[0]
+            out_dir = os.path.join(blutter_dir, f"out_dir_{base_name}")
+
+            self.log("[D] Phase 1: Analyse Blutter...")
+
+            if apk_path.endswith('.apk'):
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    libapp_file, libflutter_file = extract_libs_from_apk(apk_path, tmp_dir)
+                    dart_info = get_dart_lib_info(libapp_file, libflutter_file)
+                    blutter_input = BlutterInput(
+                        libapp_path=libapp_file,
+                        dart_info=dart_info,
+                        outdir=out_dir,
+                        rebuild_blutter=False,
+                        create_vs_sln=False,
+                        no_analysis=False,
+                        ida_fcn=False,
+                    )
+                    build_and_run(blutter_input)
+            else:
+                libapp_file, libflutter_file = find_lib_files(apk_path)
+                dart_info = get_dart_lib_info(libapp_file, libflutter_file)
+                blutter_input = BlutterInput(
+                    libapp_path=libapp_file,
+                    dart_info=dart_info,
+                    outdir=out_dir,
+                    rebuild_blutter=False,
+                    create_vs_sln=False,
+                    no_analysis=False,
+                    ida_fcn=False,
+                )
+                build_and_run(blutter_input)
+
+            if os.path.exists(out_dir):
+                asm_dir = os.path.join(out_dir, "asm")
+                pp_file = os.path.join(out_dir, "pp.txt")
+                self.log(f"[D] Analyse Blutter terminee: {out_dir}")
+                if os.path.exists(asm_dir):
+                    self.log(f"[D] Dossier asm genere: {asm_dir}")
+                if os.path.exists(pp_file):
+                    self.log(f"[D] Fichier pp.txt genere: {pp_file}")
+                return out_dir
+            else:
+                self.log("[D] Analyse Blutter: repertoire de sortie non trouve")
+                return None
+
+        except Exception as e:
+            self.log(f"[D] Erreur analyse Blutter: {e}")
+            return None
+
     def execute(self) -> bool:
-        """Executer le Rituel D - Patcheur Flutter."""
+        """Executer le Rituel D - Patcheur Flutter.
+
+        Pipeline:
+        1. Analyse Blutter (si blutter-termux est disponible)
+        2. Extraction arm64-v8a depuis l'APK
+        3. Patchage Flutter combine (PP + ASM + false addresses)
+        4. Remplacement dans l'APK
+        """
         self.log("Rituel D : Le Patcheur Flutter s'ouvre...")
         self._stop_event.clear()
 
@@ -722,9 +810,29 @@ class RituelD(BaseRitual):
 
         try:
             from .flutter.patcher import FlutterPatcher
+            from .config import Config
 
-            self.log("[D] Demarrage du patchage Flutter combine...")
-            self.progress(1, 2, "Rituel D")
+            # Phase 1: Analyse Blutter (si disponible)
+            self.progress(0, 3, "Rituel D")
+            blutter_out_dir = None
+            blutter_dir = str(Config.get('blutter_dir'))
+            if os.path.isdir(blutter_dir):
+                self.log("[D] Blutter detecte, lancement de l'analyse...")
+                blutter_out_dir = self._run_blutter_analysis(self.binary)
+                if blutter_out_dir:
+                    self.log(f"[D] Resultats Blutter: {blutter_out_dir}")
+                else:
+                    self.log("[D] Analyse Blutter echouee, continuation sans analyse prealable")
+            else:
+                self.log(f"[D] Blutter non installe dans {blutter_dir}, etape d'analyse ignoree")
+
+            if self.is_stopping():
+                self.log("Rituel D: Arrete apres l'analyse Blutter")
+                return False
+
+            # Phase 2: Patchage Flutter combine
+            self.log("[D] Phase 2: Patchage Flutter combine...")
+            self.progress(1, 3, "Rituel D")
 
             if self.is_stopping():
                 self.log("Rituel D: Arrete avant le patchage")
@@ -738,13 +846,20 @@ class RituelD(BaseRitual):
             )
             result_path = patcher.process_combined(self.binary)
 
-            self.progress(2, 2, "Rituel D")
+            self.progress(2, 3, "Rituel D")
 
+            # Phase 3: Finalisation et rapport
             result_file = write_generic_results(
-                f"Patchage Flutter termine\nAPK: {result_path}",
+                f"Patchage Flutter termine\nAPK: {result_path}\nBlutter: {blutter_out_dir or 'non disponible'}",
                 "flutter_patcher",
-                extra_metadata={"apk_path": self.binary, "result_path": result_path})
+                extra_metadata={
+                    "apk_path": self.binary,
+                    "result_path": result_path,
+                    "blutter_out_dir": blutter_out_dir,
+                })
             self.log(f"[D] Resultats sauvegardes: {result_file}")
+
+            self.progress(3, 3, "Rituel D")
 
             # Deplacer l'APK traite vers ☠️
             self._move_to_skull(self.binary)
@@ -767,7 +882,7 @@ class RituelE(BaseRitual):
 
     def __init__(self, log_callback: Callable, progress_callback: Callable,
                  r2_handler: Optional[Radare2Handler] = None,
-                 binary_path: str = None):
+                 binary_path: Optional[str] = None):
         super().__init__(log_callback, progress_callback, r2_handler)
         self.binary = binary_path
 
@@ -835,7 +950,7 @@ class RituelF(BaseRitual):
 
     def __init__(self, log_callback: Callable, progress_callback: Callable,
                  r2_handler: Optional[Radare2Handler] = None,
-                 binary_path: str = None):
+                 binary_path: Optional[str] = None):
         super().__init__(log_callback, progress_callback, r2_handler)
         self.binary = binary_path
 

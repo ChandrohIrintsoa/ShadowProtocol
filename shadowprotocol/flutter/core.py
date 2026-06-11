@@ -12,6 +12,7 @@ import tempfile
 import zipfile
 import re
 
+from ..config import Config
 from ..results_writer import write_related_functions
 
 def extract_arm64_folder_from_apk(apk_path, dest_parent='.'):
@@ -74,22 +75,22 @@ def run_blutter(filename, apk_dir='.'):
     Returns:
         Path to the Blutter output directory.
     """
-    home = os.path.expanduser("~")
+    blutter_dir = str(Config.get('blutter_dir'))
 
     extracted_path = os.path.join(apk_dir, "arm64-v8a")
     if not os.path.exists(extracted_path):
         os.makedirs(extracted_path, exist_ok=True)
 
-    out_dir = os.path.join(home, "blutter-termux", f"out_dir_{filename}")
+    out_dir = os.path.join(blutter_dir, f"out_dir_{filename}")
     cmd = ["python3", "blutter.py", extracted_path, out_dir]
     print("Running Blutter to extract files...")
     try:
-        subprocess.run(cmd, cwd=os.path.join(home, "blutter-termux"), check=True)
+        subprocess.run(cmd, cwd=blutter_dir, check=True)
     except subprocess.CalledProcessError as e:
         print(f"Blutter execution failed (return code {e.returncode})")
         return out_dir
     except FileNotFoundError:
-        print("Blutter not found. Ensure blutter-termux is installed in ~/blutter-termux/")
+        print(f"Blutter not found. Ensure blutter-termux is installed in {blutter_dir}/")
         return out_dir
 
     # Check if asm folder was created
@@ -189,7 +190,11 @@ def find_related_functions(lib_path, pp_address, timeout=12):
 
     # Extract function-offset pairs
     triple_re = re.compile(r'(0x[0-9a-fA-F]+)\s+(0x[0-9a-fA-F]+)\s+(0x[0-9a-fA-F]+)')
-    matches = [(m.group(1), m.group(3)) for ln in lines if (m := triple_re.search(ln))]
+    matches = []
+    for ln in lines:
+        m = triple_re.search(ln)
+        if m:
+            matches.append((m.group(1), m.group(3)))
 
     if not matches:
         for ln in lines:

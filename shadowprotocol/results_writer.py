@@ -1,8 +1,9 @@
 """
-Results Writer - Persistent output for search results and offset data
+ShadowProtocol - Ecriture des Resultats
 
-Ensures that all search results, offset data, and patching results are
-written to a dedicated 'results/' directory, separate from logs.
+Sortie persistante pour les resultats de recherche et les donnees d'offset.
+Assure que tous les resultats de recherche, donnees d'offset et resultats
+de patchage sont ecrits dans un repertoire 'results/' dedie, separe des logs.
 """
 
 import os
