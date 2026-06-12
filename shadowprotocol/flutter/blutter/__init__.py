@@ -12,6 +12,9 @@ Provides:
 Note: Requires pyelftools and requests packages at runtime.
 """
 
+import os
+import tempfile
+
 try:
     from .blutter_engine import (
         BlutterInput,
@@ -103,15 +106,12 @@ class BlutterRunner:
         Raises:
             FileNotFoundError: If required files are missing.
         """
-        import os
-
         if not os.path.exists(self.input_path):
             raise FileNotFoundError(f"Chemin introuvable: {self.input_path}")
 
         if self.input_path.lower().endswith('.apk'):
             self.is_apk = True
             self.log("[D] APK detecte, extraction de libapp.so et libflutter.so...")
-            import tempfile
             tmp_dir = tempfile.mkdtemp(prefix='sp_blutter_')
             self.libapp_path, self.libflutter_path = extract_libs_from_apk(
                 self.input_path, tmp_dir
@@ -174,8 +174,6 @@ class BlutterRunner:
             - pp_txt: str (path to pp.txt if generated)
             - dart_info: DartLibInfo
         """
-        import os
-
         self._resolve_inputs()
 
         # Create output directory

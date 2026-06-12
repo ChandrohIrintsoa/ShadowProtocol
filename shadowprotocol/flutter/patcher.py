@@ -392,7 +392,7 @@ def patch_selected_functions(libso_path, related_funcs, patch_instr="wa add x0, 
         for i in indices:
             func_addr, offset = related_funcs[i-1]
             print(f"\nChecking function #{i} @ {func_addr} (offset {offset})")
-            disasm = r2.cmd(f"pd {int(offset, 16) * 20} @ {func_addr}")
+            disasm = r2.cmd(f"pd 200 @ {func_addr}")
 
             patched = False
             patched_at = None

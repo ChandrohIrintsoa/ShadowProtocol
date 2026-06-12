@@ -35,8 +35,6 @@ from .grimoire import GrimoireUI, GrimoireANSI
 
 VALID_MODES = ('A', 'B', 'C', 'D', 'E', 'F')
 MODES_REQUIRING_TARGET = ('A', 'B', 'C', 'E')
-# Mode D accepts directories (with libapp.so + libflutter.so) as well as files
-MODES_ACCEPTING_DIR = ('D',)
 
 
 class ShadowProtocolApp:
@@ -64,7 +62,8 @@ class ShadowProtocolApp:
         self.keyword_dict: Optional[KeywordDictionary] = None
 
         # Rituel D: chemin d'input et repertoire de sortie
-        self._d_output_dir: Optional[str] = None
+        # Par defaut: memoire du telephone (/storage/emulated/0/MT2/ShadowProtocol)
+        self._d_output_dir: Optional[str] = '/storage/emulated/0/MT2/ShadowProtocol'
 
         # Handlers de signaux
         signal.signal(signal.SIGINT, self._handle_signal)
@@ -84,6 +83,7 @@ class ShadowProtocolApp:
         self.logger.info("[1] Entrer le chemin de l'esprit cible (.so / .apk / repertoire)")
         self.logger.info("[2] Entrer le sigil hex (offset pptool, pour Rituel A)")
         self.logger.info("[3] Charger un dictionnaire de mots-cles (.txt)")
+        self.logger.info("[5] Ajouter des mots-cles manuellement")
         self.logger.info("[4] Effacer radicalement les cibles et cache/log")
         self.logger.info("[A] Rituel A - L'Invocation Precise (+ dictionnaire)")
         self.logger.info("[B] Rituel B - Le Balayage d'Ame (+ dictionnaire)")
@@ -392,6 +392,8 @@ class ShadowProtocolApp:
             self._request_dictionary()
         elif ch == '4':
             self._radical_erase()
+        elif ch == '5':
+            self._request_manual_keywords()
         elif ch == 'a':
             if self.ritual_thread and self.ritual_thread.is_alive():
                 self.logger.warning("Un rituel est deja en cours")
@@ -415,7 +417,7 @@ class ShadowProtocolApp:
             if self.ritual_thread and self.ritual_thread.is_alive():
                 self.logger.warning("Un rituel est deja en cours")
             else:
-                self.logger.info("Rituel D : Le Patcheur Flutter...")
+                self.logger.info("Rituel D : Les Transmutations Blutter...")
                 self._start_ritual('D')
         elif ch == 'e':
             if self.ritual_thread and self.ritual_thread.is_alive():
@@ -556,9 +558,10 @@ class ShadowProtocolApp:
     def _get_log_file_path(self) -> str:
         """Generer un chemin de fichier log avec horodatage."""
         Config.init()
-        os.makedirs('logs', exist_ok=True)
+        logs_dir = str(Config.get('logs_dir'))
+        os.makedirs(logs_dir, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        return f"logs/grimoire_{timestamp}.log"
+        return os.path.join(logs_dir, f"grimoire_{timestamp}.log")
 
 
 def main():

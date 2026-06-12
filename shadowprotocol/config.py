@@ -24,6 +24,8 @@ class Config:
         'patch_from': '0x30',
         'patch_to': '0x20',
         'pattern_regex': r'add\s+x\d+,\s*x\d+,\s*0x30',
+        # Rituel D: repertoire de sortie par defaut (memoire du telephone)
+        'd_output_dir': '/storage/emulated/0/MT2/ShadowProtocol',
     }
 
     @classmethod

@@ -1,7 +1,5 @@
 #!/bin/bash
-# ShadowProtocol v4.0 - Le Grimoire de Transmutation Binaire
-# Compatible Linux, macOS, Termux
-
+# ShadowProtocol v4.0
 export TERM=xterm-256color
 
 # Verification Python 3.7+

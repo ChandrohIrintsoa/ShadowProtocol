@@ -102,8 +102,6 @@ class GrimoireUI:
 
         # Mode Rituel C - sous-menu
         self._c_menu_active = False
-        self._c_choice = ""
-        self._c_awaiting_cmd = False
 
     # -- Mise a jour d'etat (thread-safe) ------------------------------
 

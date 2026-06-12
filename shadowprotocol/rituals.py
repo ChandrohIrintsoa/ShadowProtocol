@@ -12,11 +12,13 @@ Rituel E : La Quete des Fonctions - ARM64 pattern search (v2/v3)
 Rituel F : Le Patcheur de Manifeste - License check removal, extractNativeLibs
 """
 
+import os
 import re
 import threading
 from abc import ABC, abstractmethod
 from typing import Callable, Dict, List, Optional, Tuple
 
+from .config import Config
 from .r2handler import Radare2Handler
 from .keyword_analyzer import KeywordDictionary, BinaryAnalyzer
 from .file_manager import FileManager
@@ -742,13 +744,17 @@ class RituelD(BaseRitual):
                 return False
 
             # Determiner le repertoire de sortie
-            import os
+            # Priorite: output_dir explicit > Config > memoire telephone
             if self.output_dir:
                 out_dir = os.path.abspath(self.output_dir)
             else:
-                # Par defaut: repertoire de l'input + /ShadowProtocol
-                input_dir = os.path.dirname(os.path.abspath(self.binary))
-                out_dir = os.path.join(input_dir, "ShadowProtocol")
+                cfg_output = Config.get('d_output_dir')
+                if cfg_output:
+                    out_dir = os.path.abspath(str(cfg_output))
+                else:
+                    # Dernier recours: a cote de l'input
+                    input_dir = os.path.dirname(os.path.abspath(self.binary))
+                    out_dir = os.path.join(input_dir, "ShadowProtocol")
 
             os.makedirs(out_dir, exist_ok=True)
 

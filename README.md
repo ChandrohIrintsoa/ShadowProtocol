@@ -62,35 +62,6 @@ shadowprotocol --check-deps  # Check dependencies (alias)
 shadowprotocol --dry-run A   # Dry-run Rituel A
 ```
 
-## Project Structure
-
-```
-shadowprotocol/
-  __init__.py          # Package init (v4.0.0)
-  __main__.py          # Module entry point
-  main.py              # ShadowProtocolApp + CLI (6 rituels)
-  grimoire.py          # GrimoireUI + GrimoireANSI (5 Chapitres)
-  rituals.py           # BaseRitual + RituelA-F
-  r2handler.py         # Radare2Handler (r2pipe + scan + batch_patch)
-  target.py            # TargetSelector + TargetValidator
-  config.py            # Global configuration with env overrides
-  logger.py            # Thread-safe logging with file persistence
-  results_writer.py    # Persistent output for all results
-  validator.py         # Code & project validation + dependency checks
-  theme.py             # ANSI colors, boxes, banners
-  flutter/
-    __init__.py        # Flutter subpackage init
-    core.py            # Extraction, blutter, cleanup, APK ops
-    patcher.py         # PP/ASM/false address patching
-    manifest.py        # Manifest patching
-    installer.py       # Termux auto-install
-    find_functions.py  # ARM64 function finder (v2/v3)
-  apk/
-    __init__.py        # APK subpackage init
-    editor.py          # APKEditor JAR operations
-tests/
-  test_basic.py        # Basic test suite
-```
 
 ## License
 
