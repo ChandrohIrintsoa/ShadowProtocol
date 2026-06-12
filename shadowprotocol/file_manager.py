@@ -7,7 +7,7 @@ l'effacement radical, et le nettoyage.
 
 import shutil
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
 
 class FileManager:

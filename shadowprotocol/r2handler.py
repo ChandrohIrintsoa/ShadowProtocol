@@ -519,12 +519,12 @@ class Radare2Handler:
                     patched += 1
                     details.append((offset, instr, f"add {reg_dest},{reg_src},{new_val}", True))
                     if log_callback:
-                        log_callback(f"0x{offset} | {instr} -> {new_val} OK")
+                        log_callback(f"{offset} | {instr} -> {new_val} OK")
                 else:
                     failed += 1
                     details.append((offset, instr, "", False))
                     if log_callback:
-                        log_callback(f"0x{offset} | ECHEC patch")
+                        log_callback(f"{offset} | ECHEC patch")
 
                 if progress_callback:
                     progress_callback(i, len(targets), "Transmutation")

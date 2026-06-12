@@ -471,7 +471,7 @@ def search_asm_folder(asm_folder):
                             'address': address,
                             'context': context,
                             'file': os.path.relpath(dart_file, asm_folder),
-                            'match_text': match.group() if len(match.group()) > 200 else match.group()
+                            'match_text': match.group()[:200]
                         })
 
                         if len(all_matches) % 10 == 0:

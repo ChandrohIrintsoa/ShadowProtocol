@@ -223,7 +223,7 @@ def get_dart_lib_info(libapp_path: str, libflutter_path: str) -> DartLibInfo:
 
 
 def build_and_run(blutter_input: BlutterInput):
-    if not os.path.isfile(blutter_blutter_input.blutter_file) or blutter_blutter_input.rebuild_blutter:
+    if not os.path.isfile(blutter_input.blutter_file) or blutter_input.rebuild_blutter:
         # before fetch and build, check the existence of compiled library first
         #   so the src and build directories can be deleted
         if os.name == "nt":
@@ -248,15 +248,14 @@ def build_and_run(blutter_input: BlutterInput):
         dbg_output_path = os.path.abspath(os.path.join(blutter_input.outdir, "out"))
         dbg_cmd_args = f"-i {blutter_input.libapp_path} -o {dbg_output_path}"
         vscmd_ver = os.getenv("VSCMD_VER")
-        assert vscmd_ver is not None, (
-            "Need run blutter in Visual Studio Develeper console"
-        )
+        if vscmd_ver is None:
+            raise EnvironmentError("Need run blutter in Visual Studio Developer console")
         if vscmd_ver.startswith("18."):
             generator = "Visual Studio 18 2026"
         elif vscmd_ver.startswith("17."):
             generator = "Visual Studio 17 2022"
         else:
-            assert False, "Unknown Visual Studio version"
+            raise EnvironmentError(f"Unknown Visual Studio version: {vscmd_ver}")
         subprocess.run(
             [
                 CMAKE_CMD,
@@ -281,7 +280,7 @@ def build_and_run(blutter_input: BlutterInput):
     else:
         if blutter_input.rebuild_blutter:
             # do not use SDK path for checking source code because Blutter does not depended on it and SDK might be removed
-            cmake_blutter(input)
+            cmake_blutter(blutter_input)
             assert os.path.isfile(blutter_input.blutter_file), (
                 "Build complete but cannot find Blutter binary: " + blutter_input.blutter_file
             )
