@@ -13,7 +13,7 @@ analyse complete avant de toucher a quoi que ce soit.
 
 import re
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional
 
 
 class KeywordDictionary:
@@ -299,12 +299,16 @@ class BinaryAnalyzer:
         if not self.binary_data:
             return False
 
-        # Verifier les limites et l'en-tete ELF (offset < 64 deja couvert)
+        # Verifier les limites
         if offset < 64 or offset >= len(self.binary_data) - 8:
             return False
 
+        # Verifier si dans l'en-tete ELF
+        if self.binary_data[:4] == b'\x7fELF' and offset < 64:
+            return False
+
         # Verifier le contexte minimal
-        return True
+        return offset + 8 <= len(self.binary_data)
 
     def scan_for_safe_patches(self, keyword: str,
                               min_context: int = 8) -> List[Dict]:

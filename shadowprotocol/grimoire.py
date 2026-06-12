@@ -33,7 +33,7 @@ class GrimoireUI:
     +--------------------------------------------------+
     | CHAPITRE II : Les 6 Rituels                       |
     |   [A] Invocation Precise  [B] Balayage d'Ame      |
-    |   [C] Canal R2 Brut       [D] Patcheur Flutter    |
+    |   [C] Canal R2 Brut       [D] Transmutations Blutter |
     |   [E] Quete Fonctions     [F] Patcheur Manifeste  |
     |   [Q] Fermer le Grimoire                          |
     +--------------------------------------------------+
@@ -125,10 +125,6 @@ class GrimoireUI:
             self.vision_buffer.append(message)
 
     # Alias pour compatibilite
-    def add_log(self, message: str):
-        """Alias: ajouter un message de log (compatibilite v3)."""
-        self.add_vision(message)
-
     def add_transmutation(self, offset: str, original: str,
                          patched: str, success: bool):
         """Ajouter une transmutation au Chapitre V."""
@@ -151,10 +147,6 @@ class GrimoireUI:
         with self.lock:
             self.mode_label = mode
 
-    # Alias pour compatibilite
-    def set_status(self, status: str):
-        """Mettre a jour le statut (compatibilite v3). Alias vers set_mode."""
-        self.set_mode(status)
     def set_target_info(self, name: str, arch: str, size: str,
                         r2_status: str, detected: List[str] = None):
         """Mettre a jour les infos de la cible (Chapitre III)."""
@@ -256,7 +248,7 @@ class GrimoireUI:
                               self._color(2))
             y += 1
             self._safe_addstr(y, 2,
-                              "[C] Canal R2 Brut       [D] Patcheur Flutter",
+                              "[C] Canal R2 Brut       [D] Transmutations Blutter",
                               self._color(2))
             y += 1
             self._safe_addstr(y, 2,
@@ -568,10 +560,6 @@ class GrimoireANSI:
             self.vision_buffer.append(message)
 
     # Alias pour compatibilite
-    def add_log(self, message: str):
-        """Alias: ajouter un message de log (compatibilite v3)."""
-        self.add_vision(message)
-
     def add_transmutation(self, offset: str, original: str,
                          patched: str, success: bool):
         with self.lock:
@@ -589,10 +577,6 @@ class GrimoireANSI:
     def set_mode(self, mode: str):
         with self.lock:
             self.mode_label = mode
-
-    def set_status(self, status: str):
-        """Compatibilite v3. Alias vers set_mode."""
-        self.set_mode(status)
 
     def set_target_info(self, name: str, arch: str, size: str,
                         r2_status: str, detected: List[str] = None):
@@ -654,7 +638,7 @@ class GrimoireANSI:
                 print(self._colorize("  [9] Patch hex (wx)     [0] Quitter & Sauver", self.YELLOW))
             else:
                 print(self._colorize("  [A] Invocation Precise  [B] Balayage d'Ame", self.GREEN))
-                print(self._colorize("  [C] Canal R2 Brut       [D] Patcheur Flutter", self.GREEN))
+                print(self._colorize("  [C] Canal R2 Brut       [D] Transmutations Blutter", self.GREEN))
                 print(self._colorize("  [E] Quete Fonctions     [F] Patcheur Manifeste", self.GREEN))
                 print(self._colorize("  [Q] Fermer le Grimoire", self.RED))
             print(self._colorize(self.SEP, self.MAGENTA))

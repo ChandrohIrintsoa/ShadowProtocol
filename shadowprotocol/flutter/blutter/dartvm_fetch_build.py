@@ -1,9 +1,3 @@
-"""B(l)utter-Termux - Recuperation et compilation du Dart VM.
-
-Telecharge les sources du Dart SDK, les compile en bibliotheque
-statique pour l'analyse par Blutter. Gere les versions et la
-compatibilite Termux (fmt::format).
-"""
 import mmap
 import os
 import shutil

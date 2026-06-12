@@ -11,6 +11,7 @@ deduplicating all shared functionality.
 """
 
 import os
+import glob
 import json
 import shutil
 import subprocess
@@ -25,11 +26,8 @@ def find_apkeditor_jar():
     for f in os.listdir('.'):
         if f.lower().endswith('.jar') and "apkeditor" in f.lower():
             return f
-    # Fallback: check for APKEditor*.jar pattern in current dir
-    for f in os.listdir('.'):
-        if f.lower().endswith('.jar') and (f.startswith('APKEditor') or 'apkeditor' in f.lower()):
-            return f
-    return None
+    jars = glob.glob("APKEditor*.jar") + glob.glob("*APKEditor*.jar")
+    return jars[0] if jars else None
 
 def get_latest_apkeditor_url():
     """Get the latest APKEditor download URL from GitHub.

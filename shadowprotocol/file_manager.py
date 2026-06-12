@@ -2,10 +2,9 @@
 ShadowProtocol - Gestionnaire de Fichiers
 
 Gere les fichiers cibles, les sauvegardes, le dossier ☠️,
-la detection multi-cibles, l'effacement radical, et le nettoyage.
+l'effacement radical, et le nettoyage.
 """
 
-import os
 import shutil
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -16,8 +15,7 @@ class FileManager:
 
     Fonctionnalites:
     - Creation et gestion du dossier ☠️ pour les fichiers traites
-    - Deplacement/copie des fichiers patches vers ☠️
-    - Detection automatique de cibles multiples dans un chemin
+    - Deplacement des fichiers patches vers ☠️
     - Effacement radical des cibles et cache/log
     - Nettoyage des fichiers temporaires
     """
@@ -78,80 +76,6 @@ class FileManager:
             return str(dest)
         except Exception:
             return None
-
-    def copy_to_skull(self, source_path: str) -> Optional[str]:
-        """Copier un fichier vers le dossier ☠️ (garde l'original).
-
-        Args:
-            source_path: Chemin du fichier a copier
-
-        Returns:
-            Chemin dans ☠️, ou None si erreur
-        """
-        if not self.create_skull_folder():
-            return None
-
-        try:
-            source = Path(source_path)
-            dest = self.skull_dir / source.name
-
-            if dest.exists():
-                stem = source.stem
-                suffix = source.suffix
-                counter = 1
-                while dest.exists():
-                    dest = self.skull_dir / f"{stem}_{counter}{suffix}"
-                    counter += 1
-
-            shutil.copy2(str(source), str(dest))
-            return str(dest)
-        except Exception:
-            return None
-
-    @staticmethod
-    def find_targets_in_path(path: str,
-                             extensions: Optional[List[str]] = None) -> List[Tuple[str, str]]:
-        """Trouver tous les fichiers cibles dans un chemin.
-
-        Args:
-            path: Repertoire ou chemin de fichier
-            extensions: Extensions a chercher (.so, .apk, etc)
-
-        Returns:
-            Liste de tuples (chemin_fichier, type)
-        """
-        if extensions is None:
-            extensions = ['so', 'apk', 'elf', 'bin']
-
-        targets = []
-        path_obj = Path(path)
-
-        if path_obj.is_file():
-            ext = path_obj.suffix[1:] if path_obj.suffix else 'unknown'
-            targets.append((str(path_obj), ext))
-        elif path_obj.is_dir():
-            for ext in extensions:
-                for match in path_obj.rglob(f"*.{ext}"):
-                    if match.is_file() and match.name != "SKIP_ME":
-                        targets.append((str(match), ext))
-
-        return sorted(targets, key=lambda x: x[0])
-
-    @staticmethod
-    def auto_select_target(targets: List[Tuple[str, str]]) -> Optional[str]:
-        """Selection automatique: 1 cible = auto, 0 = None, >1 = None (besoin choix user).
-
-        Args:
-            targets: Liste de (chemin, type)
-
-        Returns:
-            Chemin si 1 seule cible, None sinon
-        """
-        if not targets:
-            return None
-        if len(targets) == 1:
-            return targets[0][0]
-        return None
 
     def radical_erase(self, keep_skull: bool = True) -> Tuple[int, int]:
         """Effacer radicalement les fichiers cibles et les cache/log.
@@ -229,17 +153,3 @@ class FileManager:
             except Exception:
                 pass
         return count
-
-    def get_skull_contents(self) -> List[str]:
-        """Lister les fichiers dans le dossier ☠️.
-
-        Returns:
-            Liste des chemins de fichiers
-        """
-        if not self.skull_dir.exists():
-            return []
-        return [str(f) for f in self.skull_dir.iterdir() if f.is_file()]
-
-    def skull_exists(self) -> bool:
-        """Verifier si le dossier ☠️ existe."""
-        return self.skull_dir.exists()

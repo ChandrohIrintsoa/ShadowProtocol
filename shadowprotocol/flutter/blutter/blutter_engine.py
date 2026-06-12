@@ -1,9 +1,4 @@
 #!/usr/bin/python3
-"""B(l)utter-Termux - Integre dans ShadowProtocol.
-
-Outil de reverse engineering d'applications Flutter.
-Adapte pour Termux avec fmt::format au lieu de std::format.
-"""
 import argparse
 import glob
 import mmap
@@ -88,7 +83,7 @@ def extract_libs_from_apk(apk_file: str, out_dir: str):
         try:
             app_info = zf.getinfo("lib/arm64-v8a/libapp.so")
             flutter_info = zf.getinfo("lib/arm64-v8a/libflutter.so")
-        except:
+        except Exception:
             sys.exit("Cannot find libapp.so or libflutter.so in the APK")
 
         zf.extract(app_info, out_dir)
@@ -168,7 +163,7 @@ def find_compat_macro(dart_version: str, no_analysis: bool, ida_fcn: bool):
 
 
 def cmake_blutter(input: BlutterInput):
-    blutter_dir = os.path.join(SCRIPT_DIR, "blutter")
+    blutter_dir = os.path.join(SCRIPT_DIR, "blutter_src")
     builddir = os.path.join(BUILD_DIR, input.blutter_name)
 
     macros = find_compat_macro(
@@ -249,7 +244,7 @@ def build_and_run(input: BlutterInput):
         macros = find_compat_macro(
             input.dart_info.version, input.no_analysis, input.ida_fcn
         )
-        blutter_dir = os.path.join(SCRIPT_DIR, "blutter")
+        blutter_dir = os.path.join(SCRIPT_DIR, "blutter_src")
         dbg_output_path = os.path.abspath(os.path.join(input.outdir, "out"))
         dbg_cmd_args = f"-i {input.libapp_path} -o {dbg_output_path}"
         vscmd_ver = os.getenv("VSCMD_VER")

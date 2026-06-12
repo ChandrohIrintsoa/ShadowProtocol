@@ -6,14 +6,13 @@ Rituel A : L'Invocation Precise - Patchage par offset via pptool
 Rituel B : Le Balayage d'Ame - Scan automatique et patch global
            + Support dictionnaire de mots-cles pour ciblage precis
 Rituel C : La Connexion Directe - Canal brut avec Radare2
-Rituel D : Le Patcheur Flutter - APK merge, blutter, PP/ASM patching
+Rituel D : Les Transmutations Blutter - Analyse Flutter via Blutter-Termux
+           (remplacement total de l'ancien Patcheur Flutter)
 Rituel E : La Quete des Fonctions - ARM64 pattern search (v2/v3)
 Rituel F : Le Patcheur de Manifeste - License check removal, extractNativeLibs
 """
 
-import os
 import re
-import tempfile
 import threading
 from abc import ABC, abstractmethod
 from typing import Callable, Dict, List, Optional, Tuple
@@ -699,180 +698,179 @@ class RituelC(BaseRitual):
 
 
 class RituelD(BaseRitual):
-    """Rituel D - Le Patcheur Flutter
+    """Rituel D - Les Transmutations Blutter
 
-    Pipeline complet integre:
-    1. Analyse Blutter (extraction asm, pp.txt, objs.txt)
-    2. Patchage Flutter combine (PP + ASM + false addresses)
-    3. Reconstruction APK
-
-    Le module blutter-termux est integre directement dans ShadowProtocol
-    pour une execution sans dependance externe.
+    Remplacement total de l'ancien Patcheur Flutter par Blutter-Termux.
+    Accepte:
+    - Un repertoire contenant libapp.so et libflutter.so
+    - Un fichier APK
+    - Un chemin vers libapp.so (avec libflutter.so dans le meme dossier)
+    Genere les resultats d'analyse Blutter dans le repertoire de sortie.
     """
 
     def __init__(self, log_callback: Callable, progress_callback: Callable,
                  r2_handler: Optional[Radare2Handler] = None,
-                 binary_path: Optional[str] = None):
+                 binary_path: str = None,
+                 output_dir: str = None):
         super().__init__(log_callback, progress_callback, r2_handler)
         self.binary = binary_path
+        self.output_dir = output_dir
 
     def get_label(self) -> str:
         return "D"
 
     def get_name(self) -> str:
-        return "Le Patcheur Flutter"
-
-    def _run_blutter_analysis(self, apk_path: str) -> Optional[str]:
-        """Executer l'analyse Blutter sur l'APK.
-
-        Utilise le module blutter-termux integre pour extraire
-        les fichiers d'analyse (asm/, pp.txt, objs.txt).
-
-        Args:
-            apk_path: Chemin vers le fichier APK.
-
-        Returns:
-            Chemin du repertoire de sortie Blutter, ou None si echec.
-        """
-        try:
-            from .blutter.blutter_cli import (
-                extract_libs_from_apk, find_lib_files,
-                get_dart_lib_info, BlutterInput, build_and_run,
-            )
-            from .config import Config
-
-            blutter_dir = str(Config.get('blutter_dir'))
-            base_name = os.path.splitext(os.path.basename(apk_path))[0]
-            out_dir = os.path.join(blutter_dir, f"out_dir_{base_name}")
-
-            self.log("[D] Phase 1: Analyse Blutter...")
-
-            if apk_path.endswith('.apk'):
-                with tempfile.TemporaryDirectory() as tmp_dir:
-                    libapp_file, libflutter_file = extract_libs_from_apk(apk_path, tmp_dir)
-                    dart_info = get_dart_lib_info(libapp_file, libflutter_file)
-                    blutter_input = BlutterInput(
-                        libapp_path=libapp_file,
-                        dart_info=dart_info,
-                        outdir=out_dir,
-                        rebuild_blutter=False,
-                        create_vs_sln=False,
-                        no_analysis=False,
-                        ida_fcn=False,
-                    )
-                    build_and_run(blutter_input)
-            else:
-                libapp_file, libflutter_file = find_lib_files(apk_path)
-                dart_info = get_dart_lib_info(libapp_file, libflutter_file)
-                blutter_input = BlutterInput(
-                    libapp_path=libapp_file,
-                    dart_info=dart_info,
-                    outdir=out_dir,
-                    rebuild_blutter=False,
-                    create_vs_sln=False,
-                    no_analysis=False,
-                    ida_fcn=False,
-                )
-                build_and_run(blutter_input)
-
-            if os.path.exists(out_dir):
-                asm_dir = os.path.join(out_dir, "asm")
-                pp_file = os.path.join(out_dir, "pp.txt")
-                self.log(f"[D] Analyse Blutter terminee: {out_dir}")
-                if os.path.exists(asm_dir):
-                    self.log(f"[D] Dossier asm genere: {asm_dir}")
-                if os.path.exists(pp_file):
-                    self.log(f"[D] Fichier pp.txt genere: {pp_file}")
-                return out_dir
-            else:
-                self.log("[D] Analyse Blutter: repertoire de sortie non trouve")
-                return None
-
-        except Exception as e:
-            self.log(f"[D] Erreur analyse Blutter: {e}")
-            return None
+        return "Les Transmutations Blutter"
 
     def execute(self) -> bool:
-        """Executer le Rituel D - Patcheur Flutter.
-
-        Pipeline:
-        1. Analyse Blutter (si blutter-termux est disponible)
-        2. Extraction arm64-v8a depuis l'APK
-        3. Patchage Flutter combine (PP + ASM + false addresses)
-        4. Remplacement dans l'APK
-        """
-        self.log("Rituel D : Le Patcheur Flutter s'ouvre...")
+        """Executer le Rituel D - Analyse Blutter-Termux."""
+        self.log("Rituel D : Les Transmutations Blutter s'ouvrent...")
         self._stop_event.clear()
 
         if not self.binary:
-            self.log("Aucun chemin APK fourni (option [1] avec chemin APK)")
+            self.log("[D] Aucun chemin fourni. Fournissez un repertoire (libapp.so + libflutter.so) ou un APK")
             return False
 
         try:
-            from .flutter.patcher import FlutterPatcher
-            from .config import Config
+            from .flutter.blutter import BlutterRunner
 
-            # Phase 1: Analyse Blutter (si disponible)
-            self.progress(0, 3, "Rituel D")
-            blutter_out_dir = None
-            blutter_dir = str(Config.get('blutter_dir'))
-            if os.path.isdir(blutter_dir):
-                self.log("[D] Blutter detecte, lancement de l'analyse...")
-                blutter_out_dir = self._run_blutter_analysis(self.binary)
-                if blutter_out_dir:
-                    self.log(f"[D] Resultats Blutter: {blutter_out_dir}")
-                else:
-                    self.log("[D] Analyse Blutter echouee, continuation sans analyse prealable")
-            else:
-                self.log(f"[D] Blutter non installe dans {blutter_dir}, etape d'analyse ignoree")
+            self.log("[D] Preparation de l'analyse Blutter-Termux...")
+            self.progress(1, 3, "Rituel D")
 
             if self.is_stopping():
-                self.log("Rituel D: Arrete apres l'analyse Blutter")
+                self.log("Rituel D: Arrete avant l'analyse")
                 return False
 
-            # Phase 2: Patchage Flutter combine
-            self.log("[D] Phase 2: Patchage Flutter combine...")
-            self.progress(1, 3, "Rituel D")
+            # Determiner le repertoire de sortie
+            import os
+            if self.output_dir:
+                out_dir = os.path.abspath(self.output_dir)
+            else:
+                # Par defaut: repertoire de l'input + /ShadowProtocol
+                input_dir = os.path.dirname(os.path.abspath(self.binary))
+                out_dir = os.path.join(input_dir, "ShadowProtocol")
+
+            os.makedirs(out_dir, exist_ok=True)
+
+            # Etape 1: Analyse Blutter
+            self.log(f"[D] Cible: {self.binary}")
+            self.log(f"[D] Repertoire de sortie: {out_dir}")
+            self.progress(1, 3, "Analyse Blutter")
+
+            if self.is_stopping():
+                self.log("Rituel D: Arrete avant l'analyse Blutter")
+                return False
+
+            runner = BlutterRunner(
+                input_path=self.binary,
+                output_dir=out_dir,
+                log_callback=self.log,
+                rebuild_blutter=False,
+                no_analysis=False,
+                ida_fcn=False,
+            )
+            results = runner.run()
+
+            self.progress(2, 3, "Rituel D")
 
             if self.is_stopping():
                 self.log("Rituel D: Arrete avant le patchage")
                 return False
 
-            patcher = FlutterPatcher(
-                enable_pp_patch=True,
-                enable_asm_patch=True,
-                enable_true_patch=False,
-                enable_false_patch=True,
-            )
-            result_path = patcher.process_combined(self.binary)
+            # Etape 2: Patchage PP/ASM si des resultats sont disponibles
+            total_patches = 0
+            pp_txt = results.get('pp_txt')
+            asm_dir = results.get('asm_dir')
 
-            self.progress(2, 3, "Rituel D")
+            if pp_txt or asm_dir:
+                self.log("[D] Application des patchs PP/ASM...")
+                try:
+                    from .flutter.patcher import FlutterPatcher
 
-            # Phase 3: Finalisation et rapport
-            result_file = write_generic_results(
-                f"Patchage Flutter termine\nAPK: {result_path}\nBlutter: {blutter_out_dir or 'non disponible'}",
-                "flutter_patcher",
-                extra_metadata={
-                    "apk_path": self.binary,
-                    "result_path": result_path,
-                    "blutter_out_dir": blutter_out_dir,
-                })
-            self.log(f"[D] Resultats sauvegardes: {result_file}")
+                    patcher = FlutterPatcher(
+                        enable_pp_patch=bool(pp_txt),
+                        enable_asm_patch=bool(asm_dir),
+                        enable_true_patch=False,
+                        enable_false_patch=True,
+                    )
+
+                    # Si c'est un APK, faire le patchage complet
+                    if self.binary.lower().endswith('.apk'):
+                        result_path = patcher.process_combined(self.binary)
+                        self.log(f"[D] APK patche: {result_path}")
+                    else:
+                        # Mode repertoire: patchage direct du libapp.so
+                        libapp_path = results.get('libapp_path')
+                        if libapp_path and os.path.isfile(libapp_path):
+                            if pp_txt:
+                                from .flutter.patcher import process_pp_patch
+                                _, pp_count = process_pp_patch(
+                                    self.binary,
+                                    keywords_false=[
+                                        "isPro", "ispremium", "is_premium", "is_pro",
+                                        "lifetime", "CustomerInfo", "isSubscription",
+                                        "issubscribe"
+                                    ],
+                                    enable_false_patch=True,
+                                )
+                                total_patches += pp_count
+                                self.log(f"[D] Patchs PP appliques: {pp_count}")
+
+                            if asm_dir:
+                                from .flutter.patcher import process_asm_patch
+                                asm_count = process_asm_patch(
+                                    self.binary,
+                                    os.path.dirname(os.path.abspath(self.binary)),
+                                    out_dir=os.path.dirname(out_dir),
+                                )
+                                total_patches += asm_count
+                                self.log(f"[D] Patchs ASM appliques: {asm_count}")
+
+                except Exception as e:
+                    self.log(f"[D] Avertissement patchage: {e}")
 
             self.progress(3, 3, "Rituel D")
 
-            # Deplacer l'APK traite vers ☠️
-            self._move_to_skull(self.binary)
+            # Etape 3: Sauvegarder les resultats
+            summary_lines = [
+                f"Analyse Blutter terminee",
+                f"Input: {self.binary}",
+                f"Output: {out_dir}",
+                f"Patchs appliques: {total_patches}",
+            ]
+            if results.get('dart_info'):
+                di = results['dart_info']
+                summary_lines.append(f"Dart version: {di.version}")
+                summary_lines.append(f"Plateforme: {di.os_name} {di.arch}")
 
-            self.log("Rituel D: Patchage Flutter termine")
+            result_file = write_generic_results(
+                "\n".join(summary_lines),
+                "blutter_transmutations",
+                extra_metadata={
+                    "input_path": self.binary,
+                    "output_dir": out_dir,
+                    "patches_applied": total_patches,
+                    "dart_version": str(results.get('dart_info').version) if results.get('dart_info') else "N/A",
+                })
+            self.log(f"[D] Resultats sauvegardes: {result_file}")
+
+            # Deplacer l'input traite vers ☠️ si c'est un fichier
+            if os.path.isfile(self.binary):
+                self._move_to_skull(self.binary)
+
+            self.log("Rituel D: Transmutations Blutter terminees")
             return True
 
+        except FileNotFoundError as e:
+            self.log(f"[D] Fichier manquant: {e}")
+            self.log("[D] Le mode D necessite: un repertoire avec libapp.so et libflutter.so, ou un APK")
+            return False
         except Exception as e:
-            self.log(f"Rituel D: Erreur patchage Flutter: {e}")
+            self.log(f"Rituel D: Erreur analyse Blutter: {e}")
             result_file = write_generic_results(
-                f"Erreur patchage Flutter: {e}",
-                "flutter_patcher_error",
-                extra_metadata={"apk_path": self.binary, "error": str(e)})
+                f"Erreur analyse Blutter: {e}",
+                "blutter_error",
+                extra_metadata={"input_path": self.binary, "error": str(e)})
             self.log(f"[D] Erreur journalisee: {result_file}")
             return False
 
@@ -882,7 +880,7 @@ class RituelE(BaseRitual):
 
     def __init__(self, log_callback: Callable, progress_callback: Callable,
                  r2_handler: Optional[Radare2Handler] = None,
-                 binary_path: Optional[str] = None):
+                 binary_path: str = None):
         super().__init__(log_callback, progress_callback, r2_handler)
         self.binary = binary_path
 
@@ -950,7 +948,7 @@ class RituelF(BaseRitual):
 
     def __init__(self, log_callback: Callable, progress_callback: Callable,
                  r2_handler: Optional[Radare2Handler] = None,
-                 binary_path: Optional[str] = None):
+                 binary_path: str = None):
         super().__init__(log_callback, progress_callback, r2_handler)
         self.binary = binary_path
 
@@ -1016,7 +1014,8 @@ def get_ritual(mode_name: str, log_cb: Callable, progress_cb: Callable,
                r2_handler: Optional[Radare2Handler] = None,
                offset: Optional[str] = None,
                binary_path: Optional[str] = None,
-               keyword_dict: Optional[KeywordDictionary] = None) -> BaseRitual:
+               keyword_dict: Optional[KeywordDictionary] = None,
+               output_dir: Optional[str] = None) -> BaseRitual:
     """Fabrique: creer une instance de rituel par nom.
 
     Args:
@@ -1027,6 +1026,7 @@ def get_ritual(mode_name: str, log_cb: Callable, progress_cb: Callable,
         offset: Offset pour Rituel A
         binary_path: Chemin binaire pour Rituels D/E/F
         keyword_dict: Dictionnaire de mots-cles pour Rituel A/B
+        output_dir: Repertoire de sortie pour Rituel D (Blutter)
 
     Returns:
         Instance du rituel correspondant
@@ -1042,7 +1042,7 @@ def get_ritual(mode_name: str, log_cb: Callable, progress_cb: Callable,
     elif mode_name == 'C':
         return RituelC(log_cb, progress_cb, r2_handler)
     elif mode_name == 'D':
-        return RituelD(log_cb, progress_cb, r2_handler, binary_path)
+        return RituelD(log_cb, progress_cb, r2_handler, binary_path, output_dir)
     elif mode_name == 'E':
         return RituelE(log_cb, progress_cb, r2_handler, binary_path)
     elif mode_name == 'F':

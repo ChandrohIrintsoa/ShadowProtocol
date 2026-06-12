@@ -15,8 +15,6 @@ from typing import List, Optional, Tuple
 class TargetValidator:
     """Validateur multi-format (.so ELF, .apk, binaires)."""
 
-    VALID_EXTENSIONS = {'.so', '.apk', '.bin', '.elf', '.a', '.o'}
-
     @staticmethod
     def is_valid_so(path: str) -> bool:
         """Verifier la signature magique ELF."""
@@ -183,33 +181,4 @@ class TargetSelector:
             size = "N/A"
         return name, arch, size, writable
 
-    def select_interactive(self, targets: List[Tuple[str, str]]) -> Optional[str]:
-        """Selection interactive (fallback, NON TUI-safe).
 
-        WARNING: Utilise print() et input() qui conflictent
-        avec curses TUI. Utiliser validate_manual_path() avec
-        le mode saisie TUI a la place.
-        """
-        if not targets:
-            return None
-
-        for i, (target, target_type) in enumerate(targets, 1):
-            arch = self.validator.get_arch(target) if target_type == "ELF" else target_type
-            writable = "Oui" if self.validator.is_writable(target) else "Non"
-            try:
-                size_bytes = os.path.getsize(target)
-                size = f"{size_bytes / 1024 / 1024:.2f} Mo"
-            except OSError:
-                size = "N/A"
-
-            print(f"[{i}] {target}")
-            print(f"    Type: {target_type} | Arch: {arch} | RW: {writable} | Taille: {size}")
-
-        try:
-            choice = int(input(f"\nSelectionner cible [1-{len(targets)}]: "))
-            if 1 <= choice <= len(targets):
-                return targets[choice - 1][0]
-        except (ValueError, IndexError):
-            pass
-
-        return None

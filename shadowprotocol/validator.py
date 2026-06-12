@@ -4,60 +4,9 @@ ShadowProtocol - Validateur
 Validation des dependances systeme et integrite du code.
 """
 
-import ast
 import sys
 import subprocess
 from typing import List, Tuple
-
-
-class CodeValidator:
-    """Valider l'integrite du code Python."""
-
-    @staticmethod
-    def find_unused_imports(file_path: str) -> List[str]:
-        """Detecter les imports inutilises."""
-        try:
-            with open(file_path, 'r') as f:
-                tree = ast.parse(f.read())
-        except Exception:
-            return []
-
-        imports = set()
-        used = set()
-
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    imports.add(alias.asname or alias.name)
-            elif isinstance(node, ast.ImportFrom):
-                for alias in node.names:
-                    imports.add(alias.asname or alias.name)
-            elif isinstance(node, ast.Name):
-                used.add(node.id)
-
-        return list(imports - used)
-
-    @staticmethod
-    def find_unused_variables(file_path: str) -> List[str]:
-        """Detecter les variables inutilisees."""
-        try:
-            with open(file_path, 'r') as f:
-                tree = ast.parse(f.read())
-        except Exception:
-            return []
-
-        defined = {}
-        used = set()
-
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if isinstance(target, ast.Name):
-                        defined[target.id] = True
-            elif isinstance(node, ast.Name):
-                used.add(node.id)
-
-        return [var for var in defined if var not in used and not var.startswith('_')]
 
 
 class DependencyValidator:

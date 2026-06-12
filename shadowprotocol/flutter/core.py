@@ -12,7 +12,6 @@ import tempfile
 import zipfile
 import re
 
-from ..config import Config
 from ..results_writer import write_related_functions
 
 def extract_arm64_folder_from_apk(apk_path, dest_parent='.'):
@@ -68,6 +67,9 @@ def extract_arm64_folder_from_apk(apk_path, dest_parent='.'):
 def run_blutter(filename, apk_dir='.'):
     """Run Blutter to extract asm files.
 
+    Uses the integrated blutter-termux package when available,
+    falls back to subprocess call for compatibility.
+
     Args:
         filename: Base name for the output directory.
         apk_dir: Directory containing the arm64-v8a folder.
@@ -75,23 +77,35 @@ def run_blutter(filename, apk_dir='.'):
     Returns:
         Path to the Blutter output directory.
     """
-    blutter_dir = str(Config.get('blutter_dir'))
+    home = os.path.expanduser("~")
 
     extracted_path = os.path.join(apk_dir, "arm64-v8a")
     if not os.path.exists(extracted_path):
         os.makedirs(extracted_path, exist_ok=True)
 
-    out_dir = os.path.join(blutter_dir, f"out_dir_{filename}")
-    cmd = ["python3", "blutter.py", extracted_path, out_dir]
-    print("Running Blutter to extract files...")
+    out_dir = os.path.join(home, "blutter-termux", f"out_dir_{filename}")
+
+    # Try integrated blutter first
     try:
-        subprocess.run(cmd, cwd=blutter_dir, check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"Blutter execution failed (return code {e.returncode})")
-        return out_dir
-    except FileNotFoundError:
-        print(f"Blutter not found. Ensure blutter-termux is installed in {blutter_dir}/")
-        return out_dir
+        from .blutter import BlutterRunner
+        runner = BlutterRunner(
+            input_path=extracted_path,
+            output_dir=out_dir,
+        )
+        runner.run()
+        print(f"Blutter analysis completed: {out_dir}")
+    except Exception as e:
+        print(f"Integrated Blutter failed ({e}), trying external...")
+        # Fallback: try running blutter.py from ~/blutter-termux/
+        cmd = ["python3", "blutter.py", extracted_path, out_dir]
+        try:
+            subprocess.run(cmd, cwd=os.path.join(home, "blutter-termux"), check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"Blutter execution failed (return code {e.returncode})")
+            return out_dir
+        except FileNotFoundError:
+            print("Blutter not found. Ensure blutter-termux is installed in ~/blutter-termux/")
+            return out_dir
 
     # Check if asm folder was created
     asm_folder = os.path.join(out_dir, "asm")
@@ -190,11 +204,7 @@ def find_related_functions(lib_path, pp_address, timeout=12):
 
     # Extract function-offset pairs
     triple_re = re.compile(r'(0x[0-9a-fA-F]+)\s+(0x[0-9a-fA-F]+)\s+(0x[0-9a-fA-F]+)')
-    matches = []
-    for ln in lines:
-        m = triple_re.search(ln)
-        if m:
-            matches.append((m.group(1), m.group(3)))
+    matches = [(m.group(1), m.group(3)) for ln in lines if (m := triple_re.search(ln))]
 
     if not matches:
         for ln in lines:
@@ -226,33 +236,4 @@ def find_related_functions(lib_path, pp_address, timeout=12):
 
     return functions
 
-def parse_selection(selection_str, max_index):
-    """Parse user selection string into list of indices.
 
-    Supports: "1,3,5", "2-4", "all"
-
-    Args:
-        selection_str: User input string.
-        max_index: Maximum valid index.
-
-    Returns:
-        Sorted list of selected indices.
-    """
-    if not selection_str:
-        return []
-    s = selection_str.strip().lower()
-    if s == "all":
-        return list(range(1, max_index + 1))
-
-    indices = set()
-    for token in re.split(r'\s*,\s*', s):
-        if re.match(r'^\d+-\d+$', token):
-            a, b = map(int, token.split('-'))
-            for i in range(min(a, b), max(a, b) + 1):
-                if 1 <= i <= max_index:
-                    indices.add(i)
-        elif token.isdigit():
-            i = int(token)
-            if 1 <= i <= max_index:
-                indices.add(i)
-    return sorted(indices)

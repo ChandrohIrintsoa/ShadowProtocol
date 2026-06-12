@@ -1,8 +1,3 @@
-"""B(l)utter-Termux - Extraction des informations Dart.
-
-Extrait la version Dart, le snapshot hash et les flags
-depuis les fichiers libapp.so et libflutter.so.
-"""
 import io
 import os
 import re
@@ -13,7 +8,6 @@ import zlib
 from struct import unpack
 
 from elftools.elf.elffile import ELFFile
-from elftools.elf.sections import SymbolTableSection
 
 # TODO: support both ELF and Mach-O file
 def extract_snapshot_hash_flags(libapp_file):

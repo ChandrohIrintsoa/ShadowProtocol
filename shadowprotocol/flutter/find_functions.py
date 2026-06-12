@@ -210,26 +210,3 @@ class FunctionFinder:
             'v3': self.find_v3()
         }
 
-def find_functions_v2(binary_path: str) -> List[Tuple[str, str]]:
-    """Standalone function: find functions with x0-specific pattern.
-
-    Args:
-        binary_path: Path to the ARM64 binary.
-
-    Returns:
-        List of (address, instruction) tuples.
-    """
-    finder = FunctionFinder(binary_path)
-    return finder.find_v2()
-
-def find_functions_v3(binary_path: str) -> List[Tuple[str, str]]:
-    """Standalone function: find functions with any-register pattern.
-
-    Args:
-        binary_path: Path to the ARM64 binary.
-
-    Returns:
-        List of (address, instruction) tuples.
-    """
-    finder = FunctionFinder(binary_path)
-    return finder.find_v3()

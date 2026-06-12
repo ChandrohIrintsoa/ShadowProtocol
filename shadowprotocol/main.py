@@ -35,6 +35,8 @@ from .grimoire import GrimoireUI, GrimoireANSI
 
 VALID_MODES = ('A', 'B', 'C', 'D', 'E', 'F')
 MODES_REQUIRING_TARGET = ('A', 'B', 'C', 'E')
+# Mode D accepts directories (with libapp.so + libflutter.so) as well as files
+MODES_ACCEPTING_DIR = ('D',)
 
 
 class ShadowProtocolApp:
@@ -61,6 +63,9 @@ class ShadowProtocolApp:
         # Dictionnaire de mots-cles
         self.keyword_dict: Optional[KeywordDictionary] = None
 
+        # Rituel D: chemin d'input et repertoire de sortie
+        self._d_output_dir: Optional[str] = None
+
         # Handlers de signaux
         signal.signal(signal.SIGINT, self._handle_signal)
         signal.signal(signal.SIGTERM, self._handle_signal)
@@ -76,14 +81,14 @@ class ShadowProtocolApp:
         self.logger.info("Forge pour alterer les esprits de pierre (binaires .so)")
         self.logger.info("par l'invocation de Radare2")
         self.logger.info("")
-        self.logger.info("[1] Entrer le chemin de l'esprit cible (.so / .apk)")
+        self.logger.info("[1] Entrer le chemin de l'esprit cible (.so / .apk / repertoire)")
         self.logger.info("[2] Entrer le sigil hex (offset pptool, pour Rituel A)")
         self.logger.info("[3] Charger un dictionnaire de mots-cles (.txt)")
         self.logger.info("[4] Effacer radicalement les cibles et cache/log")
         self.logger.info("[A] Rituel A - L'Invocation Precise (+ dictionnaire)")
         self.logger.info("[B] Rituel B - Le Balayage d'Ame (+ dictionnaire)")
         self.logger.info("[C] Rituel C - La Connexion Directe (canal R2 brut)")
-        self.logger.info("[D] Rituel D - Le Patcheur Flutter")
+        self.logger.info("[D] Rituel D - Les Transmutations Blutter")
         self.logger.info("[E] Rituel E - La Quete des Fonctions")
         self.logger.info("[F] Rituel F - Le Patcheur de Manifeste")
         self.logger.info("[Q] Fermer le Grimoire")
@@ -137,7 +142,8 @@ class ShadowProtocolApp:
                 r2_handler=self.r2_handler,
                 offset=self.current_offset if mode_name.upper() == 'A' else None,
                 binary_path=self.current_target if mode_name.upper() in ('D', 'E', 'F') else None,
-                keyword_dict=self.keyword_dict if mode_name.upper() in ('A', 'B') else None
+                keyword_dict=self.keyword_dict if mode_name.upper() in ('A', 'B') else None,
+                output_dir=self._d_output_dir if mode_name.upper() == 'D' else None,
             )
             self.current_ritual = ritual
             self.ui.set_mode(f"RITUEL {mode_name.upper()}")
@@ -183,11 +189,28 @@ class ShadowProtocolApp:
         """Demander le chemin de la cible via le TUI."""
         if self.ui.is_input_active:
             return
-        self.logger.info("Entrez le chemin vers le fichier cible (.so / .apk):")
+        self.logger.info("Entrez le chemin vers le fichier cible (.so / .apk) ou repertoire (libapp+libflutter):")
         self.ui.enter_input_mode("Chemin: ", self._on_target_path_entered)
 
     def _on_target_path_entered(self, path: str):
         """Callback quand l'utilisateur soumet un chemin de cible."""
+        expanded = os.path.expanduser(path)
+        expanded = os.path.expandvars(expanded)
+
+        # Mode D: accepter les repertoires contenant libapp.so + libflutter.so
+        if os.path.isdir(expanded):
+            libapp = os.path.join(expanded, 'libapp.so')
+            libflutter = os.path.join(expanded, 'libflutter.so')
+            if os.path.isfile(libapp) and os.path.isfile(libflutter):
+                self.current_target = os.path.abspath(expanded)
+                self.logger.success(f"Repertoire Flutter valide: {self.current_target}")
+                self.logger.info(f"  libapp.so et libflutter.so detectes")
+                return
+            else:
+                self.logger.error(f"Repertoire sans libapp.so/libflutter.so: {path}")
+                self.logger.info("Le repertoire doit contenir libapp.so et libflutter.so")
+                return
+
         validated = self.target_selector.validate_manual_path(path)
         if validated:
             self.current_target = validated
