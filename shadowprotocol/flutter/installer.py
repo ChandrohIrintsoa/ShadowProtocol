@@ -109,7 +109,7 @@ def install_blutter():
     try:
         print("Downloading Blutter...")
         subprocess.run(
-            ["git", "clone", "https://github.com/AbhiTheModder/blutter-termux.git", blutter_dir],
+            ["git", "clone", "https://github.com/dedshit/blutter-termux.git", blutter_dir],
             check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         )
         print("Blutter downloaded")

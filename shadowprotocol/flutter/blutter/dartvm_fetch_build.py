@@ -4,6 +4,7 @@ import shutil
 import stat
 import subprocess
 import sys
+from typing import Optional
 
 # assume git and cmake (64 bits) command is in PATH
 GIT_CMD = "git"
@@ -56,8 +57,8 @@ class DartLibInfo:
         version: str,
         os_name: str,
         arch: str,
-        has_compressed_ptrs: bool | None = None,
-        snapshot_hash: str | None = None,
+        has_compressed_ptrs: Optional[bool] = None,
+        snapshot_hash: Optional[str] = None,
     ):
         self.os_name = os_name
         self.arch = arch

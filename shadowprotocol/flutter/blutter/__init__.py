@@ -186,7 +186,7 @@ class BlutterRunner:
         self.log(f"[D] Compressed pointers: {dart_info.has_compressed_ptrs}")
 
         # Create BlutterInput
-        blutter_input = BlutterInput(
+        bl_input = BlutterInput(
             libapp_path=self.libapp_path,
             dart_info=dart_info,
             outdir=self.output_dir,
@@ -197,7 +197,7 @@ class BlutterRunner:
         )
 
         self.log("[D] Execution de Blutter...")
-        build_and_run(blutter_input)
+        build_and_run(bl_input)
 
         self.blutter_out_dir = self.output_dir
 

@@ -808,29 +808,37 @@ class RituelD(BaseRitual):
                         # Mode repertoire: patchage direct du libapp.so
                         libapp_path = results.get('libapp_path')
                         if libapp_path and os.path.isfile(libapp_path):
-                            if pp_txt:
+                            if pp_txt and os.path.isfile(pp_txt):
                                 from .flutter.patcher import process_pp_patch
                                 _, pp_count = process_pp_patch(
-                                    self.binary,
+                                    libapp_path,
                                     keywords_false=[
                                         "isPro", "ispremium", "is_premium", "is_pro",
                                         "lifetime", "CustomerInfo", "isSubscription",
                                         "issubscribe"
                                     ],
                                     enable_false_patch=True,
+                                    pp_txt_path=pp_txt,
                                 )
                                 total_patches += pp_count
                                 self.log(f"[D] Patchs PP appliques: {pp_count}")
+                            elif pp_txt:
+                                self.log(f"[D] pp.txt non trouve: {pp_txt}")
 
-                            if asm_dir:
+                            if asm_dir and os.path.isdir(asm_dir):
                                 from .flutter.patcher import process_asm_patch
+                                # Pour le mode repertoire, on passe out_dir
+                                # qui contient le dossier asm genere par Blutter
+                                input_dir = os.path.dirname(os.path.abspath(self.binary))
                                 asm_count = process_asm_patch(
-                                    self.binary,
-                                    os.path.dirname(os.path.abspath(self.binary)),
-                                    out_dir=os.path.dirname(out_dir),
+                                    libapp_path,
+                                    input_dir,
+                                    out_dir=out_dir,
                                 )
                                 total_patches += asm_count
                                 self.log(f"[D] Patchs ASM appliques: {asm_count}")
+                            elif asm_dir:
+                                self.log(f"[D] Dossier asm non trouve: {asm_dir}")
 
                 except Exception as e:
                     self.log(f"[D] Avertissement patchage: {e}")
@@ -839,7 +847,7 @@ class RituelD(BaseRitual):
 
             # Etape 3: Sauvegarder les resultats
             summary_lines = [
-                f"Analyse Blutter terminee",
+                "Analyse Blutter terminee",
                 f"Input: {self.binary}",
                 f"Output: {out_dir}",
                 f"Patchs appliques: {total_patches}",

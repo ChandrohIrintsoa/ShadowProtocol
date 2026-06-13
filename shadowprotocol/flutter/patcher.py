@@ -169,7 +169,7 @@ def analyze_function_with_r2_commands(libso_path, func_addr):
         print(f"R2 command analysis error: {e}")
         return ""
 
-def patch_true_functions(libso_path, related_funcs, indices):
+def patch_false_functions(libso_path, related_funcs, indices):
     """PP PATCHING: FALSE patch mode (0x20 -> 0x30).
 
     Searches for 'add x[0-30], x22, 0x20' and replaces with 0x30.
@@ -210,7 +210,7 @@ def patch_true_functions(libso_path, related_funcs, indices):
 
             if not disasm:
                 print("  Could not get disassembly from R2 commands")
-                results[i] = (func_addr, offset, False, None, None, "TRUE_PATCH")
+                results[i] = (func_addr, offset, False, None, None, "FALSE_PATCH")
                 continue
 
             patched = False
@@ -225,7 +225,7 @@ def patch_true_functions(libso_path, related_funcs, indices):
                         addr_match = re.search(r"(0x[0-9a-fA-F]+)", line)
                         instr_addr = addr_match.group(1) if addr_match else func_addr
 
-                        print(f"TRUE pattern found: {line.strip()}")
+                        print(f"FALSE pattern found: {line.strip()}")
                         print(f"  Address: {instr_addr}")
                         print(f"  Register: {matched_register}")
 
@@ -235,7 +235,7 @@ def patch_true_functions(libso_path, related_funcs, indices):
                             r2.cmd(f"wa add {matched_register}, x22, 0x30")
                             r2.quit()
 
-                            print(f"  Patched to 'add {matched_register}, x22, 0x30' (true -> false)")
+                            print(f"  Patched to 'add {matched_register}, x22, 0x30' (false patch)")
 
                             patched = True
                             patched_at = instr_addr
@@ -245,7 +245,7 @@ def patch_true_functions(libso_path, related_funcs, indices):
                 if patched:
                     break
 
-            results[i] = (func_addr, offset, patched, patched_at, matched_register, "TRUE_PATCH")
+            results[i] = (func_addr, offset, patched, patched_at, matched_register, "FALSE_PATCH")
             if patched:
                 print(f"Function #{i} FALSE patched at {patched_at}.")
             else:
@@ -259,7 +259,7 @@ def patch_true_functions(libso_path, related_funcs, indices):
 
     return results
 
-def patch_false_functions(libso_path, related_funcs, indices):
+def patch_true_functions(libso_path, related_funcs, indices):
     """PP PATCHING: TRUE patch mode (0x30 -> 0x20).
 
     Searches for 'add x[0-30], x22, 0x30' and replaces with 0x20.
@@ -300,7 +300,7 @@ def patch_false_functions(libso_path, related_funcs, indices):
 
             if not disasm:
                 print("  Could not get disassembly from R2 commands")
-                results[i] = (func_addr, offset, False, None, None, "FALSE_PATCH")
+                results[i] = (func_addr, offset, False, None, None, "TRUE_PATCH")
                 continue
 
             patched = False
@@ -315,7 +315,7 @@ def patch_false_functions(libso_path, related_funcs, indices):
                         addr_match = re.search(r"(0x[0-9a-fA-F]+)", line)
                         instr_addr = addr_match.group(1) if addr_match else func_addr
 
-                        print(f"FALSE pattern found: {line.strip()}")
+                        print(f"TRUE pattern found: {line.strip()}")
                         print(f"  Address: {instr_addr}")
                         print(f"  Register: {matched_register}")
 
@@ -325,7 +325,7 @@ def patch_false_functions(libso_path, related_funcs, indices):
                             r2.cmd(f"wa add {matched_register}, x22, 0x20")
                             r2.quit()
 
-                            print(f"  Patched to 'add {matched_register}, x22, 0x20' (false -> true)")
+                            print(f"  Patched to 'add {matched_register}, x22, 0x20' (true patch)")
 
                             patched = True
                             patched_at = instr_addr
@@ -335,7 +335,7 @@ def patch_false_functions(libso_path, related_funcs, indices):
                 if patched:
                     break
 
-            results[i] = (func_addr, offset, patched, patched_at, matched_register, "FALSE_PATCH")
+            results[i] = (func_addr, offset, patched, patched_at, matched_register, "TRUE_PATCH")
             if patched:
                 print(f"Function #{i} TRUE patched at {patched_at}.")
             else:
@@ -346,6 +346,7 @@ def patch_false_functions(libso_path, related_funcs, indices):
 
     except Exception as e:
         print(f"TRUE patching error: {e}")
+
 
     return results
 
@@ -461,10 +462,6 @@ def search_asm_folder(asm_folder):
                     if addr_match:
                         address = addr_match.group(1)
 
-                        lines = content.splitlines()
-                        match_line_idx = content[:match.start()].count('\n')
-                        context_start = max(0, match_line_idx - 10)
-                        context_end = min(len(lines), match_line_idx + 10)
                         context = match.group()
 
                         all_matches.append({
@@ -545,10 +542,12 @@ def extract_false_addresses_from_smngn(smngn_file):
                     lines = content.splitlines()
                     for j, line in enumerate(lines):
                         if address in line and 'false' in line.lower():
-                            context_start = max(0, j - 2)
-                            context_end = min(len(lines), j + 3)
-                            context = '\n'.join(lines[context_start:context_end])
+                            ctx_start = max(0, j - 2)
+                            ctx_end = min(len(lines), j + 3)
+                            ctx = '\n'.join(lines[ctx_start:ctx_end])
                             print(f"  Found false at {address}: {line.strip()}")
+                            if ctx:
+                                pass  # context available for future use
                             break
 
         print(f"Extracted {len(false_addresses)} false addresses")
@@ -656,15 +655,17 @@ def patch_false_addresses(libso_path, false_addresses):
     return results
 
 def process_pp_patch(apk_path, keywords_true=None, keywords_false=None,
-                     enable_true_patch=False, enable_false_patch=True):
+                     enable_true_patch=False, enable_false_patch=True,
+                     pp_txt_path=None):
     """Process pp.txt based patching.
 
     Args:
-        apk_path: Path to the APK file.
+        apk_path: Path to the APK file or libapp.so.
         keywords_true: Keywords for TRUE addresses.
         keywords_false: Keywords for FALSE addresses.
         enable_true_patch: Enable TRUE patch mode.
         enable_false_patch: Enable FALSE patch mode.
+        pp_txt_path: Explicit path to pp.txt. If None, searches in apk_dir.
 
     Returns:
         Tuple of (apk_path, successful_patch_count).
@@ -683,9 +684,13 @@ def process_pp_patch(apk_path, keywords_true=None, keywords_false=None,
     print(f"TRUE Keywords: {keywords_true}")
     print(f"FALSE Keywords: {keywords_false}")
 
-    pp_txt = os.path.join(apk_dir, "pp.txt")
+    # Use explicit pp_txt_path if provided, otherwise search in apk_dir
+    if pp_txt_path:
+        pp_txt = pp_txt_path
+    else:
+        pp_txt = os.path.join(apk_dir, "pp.txt")
     if not os.path.exists(pp_txt):
-        print("pp.txt not found!")
+        print(f"pp.txt not found! (searched: {pp_txt})")
         return apk_path, 0
 
     pp_addresses_true = []
@@ -724,7 +729,11 @@ def process_pp_patch(apk_path, keywords_true=None, keywords_false=None,
             if not found_for_kw:
                 print(f"No address found for FALSE '{kw}'")
 
-    libapp_path = os.path.join(apk_dir, "libapp.so")
+    # Resolve libapp.so path - could be the apk_path itself if it's a .so file
+    if os.path.isfile(apk_path) and apk_path.lower().endswith('.so'):
+        libapp_path = apk_path
+    else:
+        libapp_path = os.path.join(apk_dir, "libapp.so")
     all_patch_results = {}
 
     if pp_addresses_true and enable_true_patch:
@@ -815,7 +824,11 @@ def process_asm_patch(apk_path, apk_dir, out_dir=None):
 
         false_addresses = extract_false_addresses_from_smngn(smngn_file)
 
-        libapp_path = os.path.join(apk_dir, "libapp.so")
+        # Resolve libapp.so path - could be apk_path itself if it's a .so file
+        if os.path.isfile(apk_path) and apk_path.lower().endswith('.so'):
+            libapp_path = apk_path
+        else:
+            libapp_path = os.path.join(apk_dir, "libapp.so")
 
         if false_addresses:
             print(f"\n{'='*60}")

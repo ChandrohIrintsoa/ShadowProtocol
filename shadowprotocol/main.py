@@ -204,7 +204,7 @@ class ShadowProtocolApp:
             if os.path.isfile(libapp) and os.path.isfile(libflutter):
                 self.current_target = os.path.abspath(expanded)
                 self.logger.success(f"Repertoire Flutter valide: {self.current_target}")
-                self.logger.info(f"  libapp.so et libflutter.so detectes")
+                self.logger.info("  libapp.so et libflutter.so detectes")
                 return
             else:
                 self.logger.error(f"Repertoire sans libapp.so/libflutter.so: {path}")
