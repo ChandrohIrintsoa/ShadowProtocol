@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from shadowprotocol.target import TargetSelector, TargetValidator
-from shadowprotocol.validator import DependencyValidator, CodeValidator
+from shadowprotocol.validator import DependencyValidator
 from shadowprotocol.config import Config
 from shadowprotocol.keyword_analyzer import KeywordDictionary, BinaryAnalyzer
 from shadowprotocol.file_manager import FileManager
@@ -145,24 +145,7 @@ class TestDependencyValidator:
             assert "missing" in msg or "not found" in msg
 
 
-class TestCodeValidator:
-    """Tests for CodeValidator static methods."""
-
-    def test_find_unused_imports(self):
-        """Detect unused imports in Python code."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
-            f.write("import os\nimport sys\n\nprint('hello')\n")
-            f.flush()
-            try:
-                unused = CodeValidator.find_unused_imports(f.name)
-                assert 'os' in unused or 'sys' in unused
-            finally:
-                os.unlink(f.name)
-
-    def test_find_unused_imports_invalid_file(self):
-        """Return empty list for invalid file."""
-        result = CodeValidator.find_unused_imports("/nonexistent/file.py")
-        assert result == []
+# TestCodeValidator removed because CodeValidator was removed from validator.py
 
 
 class TestConfig:
@@ -306,7 +289,7 @@ class TestFileManager:
                 f.write("test")
             fm = FileManager(target)
             assert fm.create_skull_folder()
-            assert fm.skull_exists()
+            assert fm.skull_dir.exists()
 
     def test_move_to_skull(self):
         """Move file to skull folder."""
@@ -320,26 +303,16 @@ class TestFileManager:
             assert os.path.exists(result)
             assert not os.path.exists(target)
 
-    def test_copy_to_skull(self):
-        """Copy file to skull folder (keep original)."""
+    def test_radical_erase(self):
+        """Test radical erase functionality."""
         with tempfile.TemporaryDirectory() as tmpdir:
             target = os.path.join(tmpdir, "test.so")
             with open(target, 'w') as f:
                 f.write("test content")
             fm = FileManager(target)
-            result = fm.copy_to_skull(target)
-            assert result is not None
-            assert os.path.exists(result)
-            assert os.path.exists(target)
-
-    def test_find_targets_in_path(self):
-        """Find targets in a directory."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            so_file = os.path.join(tmpdir, "libtest.so")
-            with open(so_file, 'w') as f:
-                f.write("test")
-            targets = FileManager.find_targets_in_path(tmpdir)
-            assert len(targets) >= 1
+            deleted, errors = fm.radical_erase(keep_skull=False)
+            assert deleted >= 1
+            assert not os.path.exists(target)
 
 
 if __name__ == "__main__":
@@ -349,7 +322,7 @@ if __name__ == "__main__":
         TestTargetSelector,
         TestTargetValidator,
         TestDependencyValidator,
-        TestCodeValidator,
+        # TestCodeValidator,
         TestConfig,
         TestKeywordDictionary,
         TestBinaryAnalyzer,

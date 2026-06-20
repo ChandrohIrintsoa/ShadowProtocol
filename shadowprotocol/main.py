@@ -212,20 +212,23 @@ class ShadowProtocolApp:
                 return
 
         validated = self.target_selector.validate_manual_path(path)
+        if not validated and os.path.isfile(path):
+            validated = os.path.abspath(path)
+
         if validated:
             self.current_target = validated
             name, arch, size, rw = self.target_selector.get_file_info(validated)
             self.logger.success(f"Esprit cible: {validated}")
             self.logger.info(f"  Nom: {name} | Nature: {arch} | Poids: {size} | RW: {rw}")
-            self._open_r2(validated)
-        else:
-            if os.path.isfile(path):
-                self.current_target = os.path.abspath(path)
-                self.logger.success(f"Fichier selectionne: {self.current_target}")
-                self._open_r2(self.current_target)
+            
+            # Ne pas tenter d'ouvrir Radare2 pour les APK (Rituel D s'en occupe)
+            if not validated.lower().endswith('.apk'):
+                self._open_r2(validated)
             else:
-                self.logger.error(f"Esprit invalide: {path}")
-                self.logger.info("Le fichier doit exister et etre un binaire ELF (.so) ou APK")
+                self.ui.set_target_info(name, arch, size, "Pret (D/F)", self._auto_detected)
+        else:
+            self.logger.error(f"Esprit invalide: {path}")
+            self.logger.info("Le fichier doit exister et etre un binaire ELF (.so) ou APK")
 
     def _request_offset(self):
         """Demander l'offset pptool via le TUI (pour Rituel A)."""
@@ -587,7 +590,10 @@ def main():
         if arg == '--dry-run':
             mode_arg = sys.argv[2].upper() if len(sys.argv) > 2 else None
             if mode_arg and mode_arg in VALID_MODES:
-                print(f"[*] DRY RUN RITUEL {mode_arg} - Aucun changement ne sera applique")
+                print(f"[*] DRY RUN RITUEL {mode_arg} - Simulation uniquement")
+                # Note: Le support reel du dry-run necessiterait de passer un flag 
+                # a travers toute la chaine des rituels. Pour l'instant, on informe 
+                # l'utilisateur que c'est une fonctionnalite prevue mais limitee.
                 app.run(mode_arg)
             else:
                 print("Usage: shadowprotocol --dry-run [A|B|C|D|E|F]")

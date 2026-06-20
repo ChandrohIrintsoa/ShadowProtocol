@@ -96,6 +96,7 @@ class BlutterRunner:
         self.libflutter_path = None
         self.blutter_out_dir = None
         self.is_apk = False
+        self._tmp_dir = None
 
     def _resolve_inputs(self):
         """Resolve input path to libapp.so and libflutter.so paths.
@@ -112,9 +113,9 @@ class BlutterRunner:
         if self.input_path.lower().endswith('.apk'):
             self.is_apk = True
             self.log("[D] APK detecte, extraction de libapp.so et libflutter.so...")
-            tmp_dir = tempfile.mkdtemp(prefix='sp_blutter_')
+            self._tmp_dir = tempfile.mkdtemp(prefix='sp_blutter_')
             self.libapp_path, self.libflutter_path = extract_libs_from_apk(
-                self.input_path, tmp_dir
+                self.input_path, self._tmp_dir
             )
             self.log(f"[D] libapp.so: {self.libapp_path}")
             self.log(f"[D] libflutter.so: {self.libflutter_path}")
@@ -174,57 +175,71 @@ class BlutterRunner:
             - pp_txt: str (path to pp.txt if generated)
             - dart_info: DartLibInfo
         """
-        self._resolve_inputs()
+        try:
+            self._resolve_inputs()
 
-        # Create output directory
-        os.makedirs(self.output_dir, exist_ok=True)
+            # Create output directory
+            os.makedirs(self.output_dir, exist_ok=True)
 
-        self.log("[D] Extraction des informations Dart/Flutter...")
-        dart_info = get_dart_lib_info(self.libapp_path, self.libflutter_path)
-        self.log(f"[D] Dart version: {dart_info.version}")
-        self.log(f"[D] Plateforme: {dart_info.os_name} {dart_info.arch}")
-        self.log(f"[D] Compressed pointers: {dart_info.has_compressed_ptrs}")
+            self.log("[D] Extraction des informations Dart/Flutter...")
+            dart_info = get_dart_lib_info(self.libapp_path, self.libflutter_path)
+            self.log(f"[D] Dart version: {dart_info.version}")
+            self.log(f"[D] Plateforme: {dart_info.os_name} {dart_info.arch}")
+            self.log(f"[D] Compressed pointers: {dart_info.has_compressed_ptrs}")
 
-        # Create BlutterInput
-        bl_input = BlutterInput(
-            libapp_path=self.libapp_path,
-            dart_info=dart_info,
-            outdir=self.output_dir,
-            rebuild_blutter=self.rebuild_blutter,
-            create_vs_sln=False,
-            no_analysis=self.no_analysis,
-            ida_fcn=self.ida_fcn,
-        )
+            # Create BlutterInput
+            bl_input = BlutterInput(
+                libapp_path=self.libapp_path,
+                dart_info=dart_info,
+                outdir=self.output_dir,
+                rebuild_blutter=self.rebuild_blutter,
+                create_vs_sln=False,
+                no_analysis=self.no_analysis,
+                ida_fcn=self.ida_fcn,
+            )
 
-        self.log("[D] Execution de Blutter...")
-        build_and_run(bl_input)
+            self.log("[D] Execution de Blutter...")
+            build_and_run(bl_input)
 
-        self.blutter_out_dir = self.output_dir
+            self.blutter_out_dir = self.output_dir
 
-        # Check outputs
-        asm_dir = os.path.join(self.output_dir, "asm")
-        pp_txt = os.path.join(self.output_dir, "pp.txt")
+            # Check outputs
+            asm_dir = os.path.join(self.output_dir, "asm")
+            pp_txt = os.path.join(self.output_dir, "pp.txt")
 
-        if os.path.exists(asm_dir):
-            asm_count = len([f for f in os.listdir(asm_dir)
-                            if f.endswith('.dart') or f.endswith('.asm')])
-            self.log(f"[D] Repertoire asm genere: {asm_count} fichier(s)")
-        else:
-            self.log("[D] Aucun repertoire asm genere")
+            if os.path.exists(asm_dir):
+                asm_count = len([f for f in os.listdir(asm_dir)
+                                if f.endswith('.dart') or f.endswith('.asm')])
+                self.log(f"[D] Repertoire asm genere: {asm_count} fichier(s)")
+            else:
+                self.log("[D] Aucun repertoire asm genere")
 
-        if os.path.exists(pp_txt):
-            self.log(f"[D] pp.txt genere: {pp_txt}")
-        else:
-            self.log("[D] Aucun pp.txt genere")
+            if os.path.exists(pp_txt):
+                self.log(f"[D] pp.txt genere: {pp_txt}")
+            else:
+                self.log("[D] Aucun pp.txt genere")
 
-        self.log("[D] Analyse Blutter terminee")
+            self.log("[D] Analyse Blutter terminee")
 
-        return {
-            'success': True,
-            'libapp_path': self.libapp_path,
-            'libflutter_path': self.libflutter_path,
-            'output_dir': self.output_dir,
-            'asm_dir': asm_dir if os.path.exists(asm_dir) else None,
-            'pp_txt': pp_txt if os.path.exists(pp_txt) else None,
-            'dart_info': dart_info,
-        }
+            return {
+                'success': True,
+                'libapp_path': self.libapp_path,
+                'libflutter_path': self.libflutter_path,
+                'output_dir': self.output_dir,
+                'asm_dir': asm_dir if os.path.exists(asm_dir) else None,
+                'pp_txt': pp_txt if os.path.exists(pp_txt) else None,
+                'dart_info': dart_info,
+            }
+        finally:
+            self.cleanup()
+
+    def cleanup(self):
+        """Nettoyer les fichiers temporaires."""
+        if self._tmp_dir and os.path.exists(self._tmp_dir):
+            import shutil
+            try:
+                shutil.rmtree(self._tmp_dir, ignore_errors=True)
+                self.log(f"[D] Nettoyage du repertoire temporaire: {self._tmp_dir}")
+            except Exception:
+                pass
+            self._tmp_dir = None
